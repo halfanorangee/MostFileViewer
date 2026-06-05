@@ -187,6 +187,11 @@ func (a *App) ReadFile(path string) (*FileContent, error) {
 		Extension: extension,
 	}
 
+	if extension == ".csv" {
+		content.Base64 = base64.StdEncoding.EncodeToString(data)
+		content.Encoding = detectTextEncoding(data)
+		return content, nil
+	}
 	if isOfficePreviewExtension(extension) {
 		content.Base64 = base64.StdEncoding.EncodeToString(data)
 		return content, nil

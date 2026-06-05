@@ -48,7 +48,7 @@
         </div>
 
         <div v-if="!parsed" class="excel-viewer__loading">
-            <p>正在解析 Excel 文件...</p>
+            <p>{{ loadingText }}</p>
         </div>
 
         <div v-else-if="parseError" class="excel-viewer__error">
@@ -70,10 +70,7 @@
                 class="excel-viewer__virtual-sheet"
                 :style="virtualSheetStyle"
             >
-                <div
-                    class="excel-viewer__corner"
-                    :style="cornerStyle"
-                ></div>
+                <div class="excel-viewer__corner" :style="cornerStyle"></div>
                 <div
                     v-for="col in virtualColHeaders"
                     :key="col.index"
@@ -188,6 +185,7 @@ const customRowHeights = ref({});
 const searchQuery = ref("");
 const searchMatches = ref([]);
 const activeMatchIndex = ref(-1);
+const renderNotice = ref("");
 
 const tableWrapperRef = ref(null);
 const viewport = shallowRef({ width: 0, height: 0 });
@@ -225,6 +223,16 @@ const activeWorksheet = computed(() => {
     );
 });
 
+const previewKind = computed(() =>
+    isCsvFile(props.extension) ? "csv" : "excel",
+);
+
+const loadingText = computed(() =>
+    previewKind.value === "csv"
+        ? "正在解析 CSV 文件..."
+        : "正在解析 Excel 文件...",
+);
+
 // ── Virtual scroll ─────────────────────────────────────────
 
 const {
@@ -234,15 +242,15 @@ const {
     virtualRows,
     axisMetrics,
 } = useVirtualScroll({
-        activeWorksheet,
-        zoom,
-        viewport,
-        scrollPosition,
-        customColumnWidths,
-        customRowHeights,
-        worksheetCache,
-        sizeKeyFn: sizeKey,
-    });
+    activeWorksheet,
+    zoom,
+    viewport,
+    scrollPosition,
+    customColumnWidths,
+    customRowHeights,
+    worksheetCache,
+    sizeKeyFn: sizeKey,
+});
 
 const cornerStyle = computed(() => ({
     width: `${ROW_HEADER_WIDTH}px`,
@@ -488,20 +496,62 @@ function clampScrollPosition(value, max) {
 }
 
 function isSearchMatch(cell) {
-    return searchMatchKeys.value.has(cellKey(cell.rowNumber, cell.columnNumber));
+    return searchMatchKeys.value.has(
+        cellKey(cell.rowNumber, cell.columnNumber),
+    );
 }
 
 function isActiveSearchMatch(cell) {
-    return activeSearchMatchKey.value === cellKey(cell.rowNumber, cell.columnNumber);
+    return (
+        activeSearchMatchKey.value ===
+        cellKey(cell.rowNumber, cell.columnNumber)
+    );
+}
+
+const MAX_CSV_PREVIEW_BYTES = 8 * 1024 * 1024;
+const CSV_ROW_SOFT_LIMIT = 20000;
+const CSV_COLUMN_SOFT_LIMIT = 200;
+
+function buildCsvNotice(buffer, worksheet) {
+    const notices = [];
+
+    if (buffer.byteLength > MAX_CSV_PREVIEW_BYTES * 0.5) {
+        notices.push(
+            `当前 CSV 约 ${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB，首次打开可能稍慢。`,
+        );
+    }
+
+    if (worksheet.rowCount > CSV_ROW_SOFT_LIMIT) {
+        notices.push(
+            `行数较多（${worksheet.rowCount} 行），滚动和搜索可能变慢。`,
+        );
+    }
+
+    if (worksheet.columnCount > CSV_COLUMN_SOFT_LIMIT) {
+        notices.push(
+            `列数较多（${worksheet.columnCount} 列），表格渲染可能变慢。`,
+        );
+    }
+
+    return notices.join(" ");
+}
+
+function ensureCsvPreviewSize(buffer) {
+    if (buffer.byteLength <= MAX_CSV_PREVIEW_BYTES) {
+        return;
+    }
+
+    throw new Error(
+        `CSV 文件过大，暂不直接预览（当前 ${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB，限制 ${(MAX_CSV_PREVIEW_BYTES / 1024 / 1024).toFixed(0)} MB）。请拆分文件后再打开。`,
+    );
 }
 
 // ── Parsing ────────────────────────────────────────────────
 
-const renderNotice = computed(() => "");
-
 async function parseExcel(src) {
     parsed.value = false;
     parseError.value = "";
+    renderNotice.value = "";
     sheets.value = [];
     workbookData = null;
     xlsxFallbackData = null;
@@ -515,10 +565,15 @@ async function parseExcel(src) {
         const buffer = toArrayBuffer(src);
 
         if (isCsvFile(props.extension)) {
+            ensureCsvPreviewSize(buffer);
             workbookData = parseCsvWorkbook(buffer, props.encoding);
             sheets.value = workbookData.worksheets.map((ws) => ({
                 name: ws.name,
             }));
+            renderNotice.value = buildCsvNotice(
+                buffer,
+                workbookData.worksheets[0] ?? null,
+            );
         } else {
             try {
                 const { default: ExcelJS } = await import("exceljs");
@@ -535,9 +590,10 @@ async function parseExcel(src) {
                     JSZip,
                 );
                 workbookData = xlsxFallbackData;
-                sheets.value = getWorkbookSheetNames(null, xlsxFallbackData).map(
-                    (name) => ({ name }),
-                );
+                sheets.value = getWorkbookSheetNames(
+                    null,
+                    xlsxFallbackData,
+                ).map((name) => ({ name }));
             }
         }
 
@@ -549,7 +605,14 @@ async function parseExcel(src) {
         await nextTick();
         updateViewport();
     } catch (err) {
-        parseError.value = String(err?.message ?? err ?? "Excel 解析失败");
+        renderNotice.value = "";
+        parseError.value = String(
+            err?.message ??
+                err ??
+                (previewKind.value === "csv"
+                    ? "CSV 解析失败"
+                    : "Excel 解析失败"),
+        );
         emit("error", parseError.value);
         parsed.value = true;
         await nextTick();

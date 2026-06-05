@@ -3,5 +3,6 @@ import vue from "@vitejs/plugin-vue";
 import wails from "@wailsio/runtime/plugins/vite";
 
 export default defineConfig({
+  base: "./",
   plugins: [vue(), wails("./bindings")],
 });

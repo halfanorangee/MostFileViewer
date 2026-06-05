@@ -36,7 +36,9 @@
                         />
 
                         <ExcelPreview
-                            v-else-if="tab.previewType === 'excel'"
+                            v-else-if="
+                                ['excel', 'csv'].includes(tab.previewType)
+                            "
                             class="excel-preview"
                             :src="tab.source"
                             :extension="tab.extension"
@@ -111,17 +113,16 @@ watch(
 );
 
 function setCodePreviewRef(path, component) {
-    if (!component) {
-        const nextRefs = { ...codePreviewRefs.value };
-        delete nextRefs[path];
-        codePreviewRefs.value = nextRefs;
-        return;
+    const current = codePreviewRefs.value[path] ?? null;
+    const next = component ?? null;
+    if (current === next) return;
+    const newRefs = { ...codePreviewRefs.value };
+    if (next) {
+        newRefs[path] = next;
+    } else {
+        delete newRefs[path];
     }
-
-    codePreviewRefs.value = {
-        ...codePreviewRefs.value,
-        [path]: component,
-    };
+    codePreviewRefs.value = newRefs;
 }
 
 function getCodeContent(path) {

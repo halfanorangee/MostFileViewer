@@ -407,9 +407,18 @@ async function handleCloseTab(path) {
 }
 
 function handlePreviewError(path, error) {
+    const message = normalizeError(error, "预览失败");
+    const tab = openTabs.value.find((item) => item.path === path);
+    if (!tab) {
+        return;
+    }
+    if (tab.status === "error" && tab.error === message) {
+        return;
+    }
+
     updateTab(path, {
         status: "error",
-        error: normalizeError(error, "预览失败"),
+        error: message,
     });
 }
 
@@ -537,7 +546,10 @@ function getPreviewType(extension) {
     if (normalized === ".docx") {
         return "word";
     }
-    if ([".xlsx", ".xlsm", ".xltx", ".xltm", ".csv"].includes(normalized)) {
+    if (normalized === ".csv") {
+        return "csv";
+    }
+    if ([".xlsx", ".xlsm", ".xltx", ".xltm"].includes(normalized)) {
         return "excel";
     }
     if (normalized === ".xls") {

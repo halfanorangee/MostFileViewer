@@ -64,15 +64,26 @@ export function useVirtualScroll(state) {
       return workerAxisMetrics.value;
     }
 
+    // Local fallback when worker is unavailable – compute proper offsets
+    // so virtual scrolling works without the worker.
     const bounds = renderBounds.value;
+    const rowOffsets = new Array(bounds.rows + 1);
+    const colOffsets = new Array(bounds.cols + 1);
+    rowOffsets[0] = COLUMN_HEADER_HEIGHT * zoom.value;
+    colOffsets[0] = ROW_HEADER_WIDTH;
+
+    for (let r = 1; r <= bounds.rows; r += 1) {
+      rowOffsets[r] = rowOffsets[r - 1] + DEFAULT_ROW_HEIGHT * zoom.value;
+    }
+    for (let c = 1; c <= bounds.cols; c += 1) {
+      colOffsets[c] = colOffsets[c - 1] + DEFAULT_COLUMN_WIDTH * zoom.value;
+    }
+
     return {
-      rowOffsets: [COLUMN_HEADER_HEIGHT * zoom.value],
-      colOffsets: [ROW_HEADER_WIDTH],
-      totalHeight:
-        COLUMN_HEADER_HEIGHT * zoom.value +
-        bounds.rows * DEFAULT_ROW_HEIGHT * zoom.value,
-      totalWidth:
-        ROW_HEADER_WIDTH + bounds.cols * DEFAULT_COLUMN_WIDTH * zoom.value,
+      rowOffsets,
+      colOffsets,
+      totalHeight: rowOffsets[bounds.rows] ?? rowOffsets[0],
+      totalWidth: colOffsets[bounds.cols] ?? colOffsets[0],
     };
   });
 
@@ -131,15 +142,6 @@ export function useVirtualScroll(state) {
     const { width, height } = viewport.value;
 
     if (!bounds.rows || !bounds.cols) {
-      return {
-        rowStart: 1,
-        rowEnd: 0,
-        colStart: 1,
-        colEnd: 0,
-      };
-    }
-
-    if (!workerAxisMetrics.value) {
       return {
         rowStart: 1,
         rowEnd: 0,
