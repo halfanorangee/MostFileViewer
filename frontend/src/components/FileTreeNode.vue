@@ -54,7 +54,7 @@ const props = defineProps({
 
 const emit = defineEmits(["open-file", "load-folder"]);
 const isFolder = computed(() => props.node.type === "folder");
-const expanded = ref(props.depth < 1);
+const expanded = ref(false);
 
 const caret = computed(() => {
     if (!isFolder.value) {
