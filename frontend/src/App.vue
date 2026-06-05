@@ -552,6 +552,9 @@ function getPreviewType(extension) {
     if ([".xlsx", ".xlsm", ".xltx", ".xltm"].includes(normalized)) {
         return "excel";
     }
+    if ([".pptx", ".pptm", ".ppsx", ".ppsm"].includes(normalized)) {
+        return "ppt";
+    }
     if (normalized === ".xls") {
         return "unsupported";
     }

@@ -34,6 +34,7 @@
     "docx-preview": "^0.3.7",
     "exceljs": "^4.4.0",
     "papaparse": "^5.5.3",
+    "pptx-preview": "^1.0.7",
     "vscode-icons-js": "^11.6.1",
     "vue": "^3.5.13",
     "vue-demi": "0.14.6"

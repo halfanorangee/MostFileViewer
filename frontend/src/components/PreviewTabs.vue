@@ -46,6 +46,13 @@
                             @error="(err) => handleRenderError(tab.path, err)"
                         />
 
+                        <PptPreview
+                            v-else-if="tab.previewType === 'ppt'"
+                            class="ppt-preview"
+                            :src="tab.source"
+                            @error="(err) => handleRenderError(tab.path, err)"
+                        />
+
                         <div
                             v-else-if="tab.previewType === 'unsupported'"
                             class="preview-tabs__state preview-tabs__state--error"
@@ -77,6 +84,7 @@ import { defineAsyncComponent, h, ref, watch } from "vue";
 
 const ExcelPreview = defineAsyncComponent(() => import("./ExcelPreview.vue"));
 const WordPreview = defineAsyncComponent(() => import("./WordPreview.vue"));
+const PptPreview = defineAsyncComponent(() => import("./PptPreview.vue"));
 const CodePreview = defineAsyncComponent(() => import("./CodePreview.vue"));
 
 const props = defineProps({

@@ -22,11 +22,6 @@ type App struct {
 	currentRoot string
 }
 
-const (
-	maxTextPreviewBytes   int64 = 20 * 1024 * 1024
-	maxOfficePreviewBytes int64 = 50 * 1024 * 1024
-)
-
 type FileTreeNode struct {
 	Name      string         `json:"name"`
 	Path      string         `json:"path"`
@@ -170,11 +165,6 @@ func (a *App) ReadFile(path string) (*FileContent, error) {
 		return nil, err
 	}
 
-	limit := maxPreviewSize(info.Name())
-	if info.Size() > limit {
-		return nil, fmt.Errorf("文件过大，无法预览（当前 %.1f MB，限制 %.0f MB）", float64(info.Size())/1024/1024, float64(limit)/1024/1024)
-	}
-
 	data, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return nil, fmt.Errorf("读取文件失败: %w", err)
@@ -223,10 +213,6 @@ func (a *App) SaveFile(path string, content string) error {
 		return fmt.Errorf("编码文件内容失败: %w", err)
 	}
 
-	if int64(len(encodedContent)) > maxTextPreviewBytes {
-		return fmt.Errorf("文件过大，无法保存（当前 %.1f MB，限制 %.0f MB）", float64(len(encodedContent))/1024/1024, float64(maxTextPreviewBytes)/1024/1024)
-	}
-
 	if err := writeFileAtomically(cleanPath, encodedContent, info.Mode().Perm()); err != nil {
 		return fmt.Errorf("保存文件失败: %w", err)
 	}
@@ -261,16 +247,9 @@ func (a *App) validateFilePath(path string) (string, os.FileInfo, error) {
 	return cleanPath, info, nil
 }
 
-func maxPreviewSize(name string) int64 {
-	if isOfficePreviewExtension(strings.ToLower(filepath.Ext(name))) {
-		return maxOfficePreviewBytes
-	}
-	return maxTextPreviewBytes
-}
-
 func isOfficePreviewExtension(extension string) bool {
 	switch extension {
-	case ".docx", ".xlsx", ".xls", ".xlsm", ".xltx", ".xltm":
+	case ".docx", ".xlsx", ".xls", ".xlsm", ".xltx", ".xltm", ".pptx", ".pptm", ".ppsx", ".ppsm":
 		return true
 	default:
 		return false
