@@ -1,0 +1,464 @@
+* {
+    box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+    margin: 0;
+    height: 100vh;
+    overflow: hidden;
+}
+
+body {
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.5;
+    color: #1f2937;
+    background: #f3f6fb;
+}
+
+button,
+input {
+    font: inherit;
+}
+
+/* ---- Title Bar ---- */
+
+.title-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 40px;
+    background: #e8edf5;
+    color: #334155;
+    border-bottom: 1px solid #d1d9e6;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.title-bar__drag {
+    --wails-draggable: drag;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding-left: 16px;
+}
+
+.title-bar__title {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+}
+
+.title-bar__controls {
+    display: flex;
+    height: 100%;
+    --wails-draggable: no-drag;
+}
+
+.title-bar__btn {
+    --wails-draggable: no-drag;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 100%;
+    border: 0;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+
+.title-bar__btn:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: #1e293b;
+}
+
+.title-bar__btn--close:hover {
+    background: #e81123;
+    color: #fff;
+}
+
+.title-bar__icon {
+    width: 18px;
+    height: 18px;
+}
+
+/* ---- Layout ---- */
+
+.page-shell {
+    height: calc(100vh - 40px);
+}
+
+.hero {
+    min-height: 100%;
+    display: grid;
+    place-items: center;
+    padding: 32px;
+}
+
+.hero__panel,
+.pane-card {
+    background: #ffffff;
+    border: 1px solid #dbe3f0;
+    border-radius: 14px;
+}
+
+.hero__panel {
+    width: min(580px, 100%);
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.hero__dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    min-height: 180px;
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    background: #f8fafc;
+    transition:
+        border-color 0.2s,
+        background 0.2s;
+    cursor: pointer;
+}
+
+.hero__dropzone--active {
+    border-color: #2563eb;
+    background: #eff6ff;
+}
+
+.hero__dropzone-icon {
+    width: 48px;
+    height: 48px;
+    color: #94a3b8;
+}
+
+.hero__dropzone--active .hero__dropzone-icon {
+    color: #2563eb;
+}
+
+.hero__dropzone-text {
+    margin: 0;
+    color: #64748b;
+    font-size: 15px;
+}
+
+.hero__dropzone--active .hero__dropzone-text {
+    color: #1e40af;
+}
+
+.hero__eyebrow {
+    margin: 0 0 8px;
+    color: #5b6b83;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.hero h1 {
+    margin: 0;
+}
+
+.hero__description {
+    max-width: 520px;
+    margin: 16px 0 0;
+    color: #526072;
+}
+
+.hero__actions {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.hero__error {
+    margin: 12px 0 0;
+    color: #c53030;
+}
+
+.workspace {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.workspace__body {
+    display: grid;
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+}
+
+.workspace__sidebar,
+.workspace__preview {
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+}
+
+.workspace__resizer {
+    cursor: col-resize;
+    background: linear-gradient(
+        to right,
+        transparent 0,
+        #d7deea 50%,
+        transparent 100%
+    );
+}
+
+.pane-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.pane-card--preview {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.pane-card__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 18px;
+    border-bottom: 1px solid #e6edf7;
+    font-weight: 600;
+}
+
+.file-tree {
+    padding: 12px 0;
+    overflow: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+}
+
+.file-tree__empty {
+    padding: 24px 18px;
+    color: #6b7280;
+}
+
+.tree-node__row {
+    min-width: max-content;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.tree-node__row:hover {
+    background: #f3f7ff;
+}
+
+.tree-node__row--active {
+    background: #e8f1ff;
+    color: #154ec1;
+}
+
+.tree-node__caret {
+    width: 16px;
+    color: #73839b;
+    flex: 0 0 auto;
+}
+
+.tree-node__icon {
+    flex: 0 0 auto;
+}
+
+.tree-node__name {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.tree-node__badge {
+    color: #2563eb;
+    font-size: 12px;
+}
+
+.preview-tabs {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.preview-tabs__lay {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+}
+
+.preview-tabs__empty,
+.preview-tabs__state {
+    display: grid;
+    flex: 1;
+    place-items: center;
+    padding: 24px;
+    text-align: center;
+}
+
+.preview-tabs__state--error {
+    color: #c53030;
+}
+
+.preview-tabs__content {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+.code-preview {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+}
+
+.excel-preview {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    overflow: auto;
+}
+
+.office-preview {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+}
+
+/* Fix layui tab layout constraints for office preview */
+.preview-tabs__lay,
+.preview-tabs__lay .layui-tab,
+.preview-tabs__lay .layui-tab-content,
+.preview-tabs__lay .layui-tab-item {
+    min-height: 0;
+}
+
+.preview-tabs__lay .layui-tab,
+.preview-tabs__lay .layui-tab-content,
+.preview-tabs__lay .layui-tab-item {
+    height: 100%;
+}
+
+.preview-tabs__lay .layui-tab-content,
+.preview-tabs__lay .layui-tab-item {
+    overflow: hidden;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.layui-tab {
+    margin: 0;
+}
+
+.preview-tabs__lay .layui-tab-title li.layui-this {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.preview-tabs__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 150px;
+}
+
+.preview-tabs__title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.preview-tabs__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.preview-tabs__close:hover {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.preview-tabs__lay .layui-tab-title li .layui-icon-close {
+    margin-left: 8px;
+    border-radius: 50%;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.preview-tabs__lay .layui-tab-title li .layui-icon-close:hover {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+/* Let the Excel viewer own its internal scrollbars */
+.excel-preview {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+@media (max-width: 768px) {
+    .hero,
+    .workspace {
+        padding: 16px;
+    }
+
+    .hero__panel {
+        padding: 28px;
+    }
+
+    .workspace__body {
+        grid-template-columns: 1fr !important;
+        gap: 12px;
+    }
+
+    .workspace__resizer {
+        display: none;
+    }
+
+    .office-preview {
+        min-height: 360px;
+    }
+}
