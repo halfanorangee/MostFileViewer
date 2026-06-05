@@ -41,7 +41,10 @@
                 class="excel-viewer__virtual-sheet"
                 :style="virtualSheetStyle"
             >
-                <div class="excel-viewer__corner"></div>
+                <div
+                    class="excel-viewer__corner"
+                    :style="cornerStyle"
+                ></div>
                 <div
                     v-for="col in virtualColHeaders"
                     :key="col.index"
@@ -118,6 +121,10 @@ import {
 import { hasWorksheetDimensions } from "../composables/excel/worksheet";
 import { useVirtualScroll } from "../composables/excel/virtualScroll";
 import { createResizeHandlers } from "../composables/excel/resize";
+import {
+    ROW_HEADER_WIDTH,
+    COLUMN_HEADER_HEIGHT,
+} from "../composables/excel/constants";
 
 // ── Props & Emits ──────────────────────────────────────────
 
@@ -186,6 +193,11 @@ const { hasRenderableData, virtualSheetStyle, virtualColHeaders, virtualRows } =
         worksheetCache,
         sizeKeyFn: sizeKey,
     });
+
+const cornerStyle = computed(() => ({
+    width: `${ROW_HEADER_WIDTH}px`,
+    height: `${COLUMN_HEADER_HEIGHT * zoom.value}px`,
+}));
 
 // ── Resize / Zoom handlers ─────────────────────────────────
 
@@ -453,8 +465,6 @@ onBeforeUnmount(() => {
     z-index: 4;
     background: #eef2f7;
     border: 1px solid #d7deea;
-    width: 40px;
-    height: 28px;
 }
 
 .excel-viewer__col-header,

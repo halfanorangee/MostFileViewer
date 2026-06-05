@@ -35,6 +35,7 @@
                         class="title-bar__btn"
                         title="文件"
                         @click.stop="toggleMenu"
+                        @dblclick.stop.prevent
                     >
                         文件
                     </button>
