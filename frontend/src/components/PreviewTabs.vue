@@ -125,7 +125,7 @@ function setCodePreviewRef(path, component) {
 }
 
 function getCodeContent(path) {
-    return codePreviewRefs.value[path]?.getContent?.() ?? "";
+    return codePreviewRefs.value[path]?.getContent?.();
 }
 
 defineExpose({
@@ -133,31 +133,73 @@ defineExpose({
 });
 
 function renderTabTitle(tab) {
-    return () =>
-        h("span", { class: "preview-tabs__title" }, [
+    // 确定状态图标
+    let statusIcon = "";
+    let statusTitle = "";
+    let statusClass = "";
+
+    if (tab.saving) {
+        statusIcon = "↻"; // 旋转箭头，表示保存中
+        statusTitle = "保存中...";
+        statusClass = "preview-tabs__status preview-tabs__status--saving";
+    } else if (tab.saveError) {
+        statusIcon = "!";
+        statusTitle = tab.saveError;
+        statusClass = "preview-tabs__status preview-tabs__status--error";
+    } else if (tab.dirty && tab.previewType === "code") {
+        statusIcon = "●"; // 圆点，表示已修改
+        statusTitle = "有未保存的修改";
+        statusClass = "preview-tabs__status preview-tabs__status--dirty";
+    }
+
+    const titleChildren = [];
+
+    // 添加状态图标（如果有）
+    if (statusIcon) {
+        titleChildren.push(
             h(
                 "span",
                 {
-                    class: "preview-tabs__title-text",
-                    title: tab.name,
+                    class: statusClass,
+                    title: statusTitle,
+                    "aria-label": statusTitle,
                 },
-                tab.name,
+                statusIcon,
             ),
-            h(
-                "button",
-                {
-                    type: "button",
-                    class: "preview-tabs__close",
-                    title: "关闭",
-                    "aria-label": `关闭 ${tab.name}`,
-                    onClick: (event) => {
-                        event.stopPropagation();
-                        emit("close-tab", tab.path);
-                    },
+        );
+    }
+
+    // 添加文件名
+    titleChildren.push(
+        h(
+            "span",
+            {
+                class: "preview-tabs__title-text",
+                title: tab.name,
+            },
+            tab.name,
+        ),
+    );
+
+    // 添加关闭按钮
+    titleChildren.push(
+        h(
+            "button",
+            {
+                type: "button",
+                class: "preview-tabs__close",
+                title: "关闭",
+                "aria-label": `关闭 ${tab.name}`,
+                onClick: (event) => {
+                    event.stopPropagation();
+                    emit("close-tab", tab.path);
                 },
-                "×",
-            ),
-        ]);
+            },
+            "×",
+        ),
+    );
+
+    return () => h("span", { class: "preview-tabs__title" }, titleChildren);
 }
 
 function getUnsupportedMessage(tab) {

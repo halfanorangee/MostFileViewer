@@ -7,53 +7,79 @@
             <span class="title-bar__title">AnyFileViewer</span>
             <div class="title-bar__menu" @mousedown.stop>
                 <button
-                    class="title-bar__btn"
-                    title="文件"
-                    @click.stop="toggleMenu"
+                    v-if="showSidebarToggle"
+                    class="title-bar__btn title-bar__btn--icon"
+                    :class="{ 'title-bar__btn--active': sidebarOpen }"
+                    :title="sidebarOpen ? '关闭文件列表' : '打开文件列表'"
+                    :aria-label="sidebarOpen ? '关闭文件列表' : '打开文件列表'"
+                    @click.stop="emit('toggle-sidebar')"
+                    @dblclick.stop.prevent
                 >
-                    文件
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        stroke="currentColor"
+                        class="title-bar__icon"
+                    >
+                        <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M3.75 5.25A2.25 2.25 0 0 1 6 3h12a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 18 21H6a2.25 2.25 0 0 1-2.25-2.25V5.25Zm5.25 0v13.5"
+                        />
+                    </svg>
                 </button>
-                <div v-if="menuOpen" class="dropdown-menu">
+                <div class="title-bar__file-menu">
                     <button
-                        class="dropdown-menu__item"
-                        @click.stop="handleSelectFile"
+                        class="title-bar__btn"
+                        title="文件"
+                        @click.stop="toggleMenu"
                     >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke-width="1.5"
-                            stroke="currentColor"
-                            class="dropdown-menu__icon"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
-                            />
-                        </svg>
-                        选择文件
+                        文件
                     </button>
-                    <button
-                        class="dropdown-menu__item"
-                        @click.stop="handleSelectFolder"
-                    >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke-width="1.5"
-                            stroke="currentColor"
-                            class="dropdown-menu__icon"
+                    <div v-if="menuOpen" class="dropdown-menu">
+                        <button
+                            class="dropdown-menu__item"
+                            @click.stop="handleSelectFile"
                         >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
-                            />
-                        </svg>
-                        选择文件夹
-                    </button>
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke-width="1.5"
+                                stroke="currentColor"
+                                class="dropdown-menu__icon"
+                            >
+                                <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+                                />
+                            </svg>
+                            选择文件
+                        </button>
+                        <button
+                            class="dropdown-menu__item"
+                            @click.stop="handleSelectFolder"
+                        >
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke-width="1.5"
+                                stroke="currentColor"
+                                class="dropdown-menu__icon"
+                            >
+                                <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+                                />
+                            </svg>
+                            选择文件夹
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -145,7 +171,18 @@
 import { ref, onMounted, onBeforeUnmount } from "vue";
 import { Window } from "@wailsio/runtime";
 
-const emit = defineEmits(["select-file", "select-folder"]);
+defineProps({
+    showSidebarToggle: {
+        type: Boolean,
+        default: false,
+    },
+    sidebarOpen: {
+        type: Boolean,
+        default: true,
+    },
+});
+
+const emit = defineEmits(["select-file", "select-folder", "toggle-sidebar"]);
 
 const isMaximized = ref(false);
 const menuOpen = ref(false);
@@ -237,8 +274,23 @@ function handleSelectFolder() {
 }
 
 .title-bar__menu {
+    display: flex;
+    align-items: center;
+    height: 100%;
+}
+
+.title-bar__file-menu {
     position: relative;
     height: 100%;
+}
+
+.title-bar__btn--icon {
+    width: 40px;
+}
+
+.title-bar__btn--active {
+    color: #154ec1;
+    background: rgba(37, 99, 235, 0.1);
 }
 
 .dropdown-menu {

@@ -1,7 +1,10 @@
 <template>
     <TitleBar
+        :show-sidebar-toggle="Boolean(selectedFolder)"
+        :sidebar-open="sidebarOpen"
         @select-folder="handleSelectFolder"
         @select-file="handleSelectFile"
+        @toggle-sidebar="toggleSidebar"
     />
     <main class="page-shell">
         <section v-if="!selectedFolder" class="hero">
@@ -46,7 +49,7 @@
 
         <section v-else class="workspace">
             <div class="workspace__body" :style="workspaceStyle">
-                <aside class="workspace__sidebar">
+                <aside v-if="sidebarOpen" class="workspace__sidebar">
                     <div class="pane-container">
                         <div class="pane-card__header">
                             <span>{{ folderName || "文件树" }}</span>
@@ -60,6 +63,7 @@
                 </aside>
 
                 <div
+                    v-if="sidebarOpen"
                     class="workspace__resizer"
                     @mousedown.stop.prevent="startResize"
                 ></div>
@@ -93,6 +97,7 @@ import { App } from "../bindings/AnyFileViewer";
 const selectedFolder = ref("");
 const treeData = ref([]);
 const leftPaneWidth = ref(320);
+const sidebarOpen = ref(true);
 const openTabs = ref([]);
 const activeTabPath = ref("");
 const previewTabs = ref(null);
@@ -100,8 +105,16 @@ const globalError = ref("");
 const dragOver = ref(false);
 let removeResizeListeners = null;
 
+// 自动保存相关
+const autoSaveDebounceTimers = new Map();
+let autoSaveIntervalTimer = null;
+const AUTO_SAVE_DEBOUNCE_DELAY = 2500; // 2.5秒防抖
+const AUTO_SAVE_INTERVAL_DELAY = 60000; // 60秒定时保存
+
 const workspaceStyle = computed(() => ({
-    gridTemplateColumns: `${leftPaneWidth.value}px 8px minmax(0, 1fr)`,
+    gridTemplateColumns: sidebarOpen.value
+        ? `${leftPaneWidth.value}px 8px minmax(0, 1fr)`
+        : "minmax(0, 1fr)",
 }));
 
 const folderName = computed(() => {
@@ -112,10 +125,12 @@ const folderName = computed(() => {
 
 onMounted(() => {
     window.addEventListener("keydown", handleGlobalShortcut);
+    startAutoSaveInterval();
 });
 
 onBeforeUnmount(() => {
     stopResize();
+    stopAutoSave();
     window.removeEventListener("keydown", handleGlobalShortcut);
 });
 
@@ -134,6 +149,10 @@ async function handleSelectFile() {
 }
 
 async function openFileInWorkspace(filePath) {
+    if (!(await saveDirtyTabs())) {
+        return;
+    }
+
     const fileName = getPathName(filePath);
     const fileNode = {
         name: fileName,
@@ -144,6 +163,7 @@ async function openFileInWorkspace(filePath) {
 
     selectedFolder.value = getParentPath(filePath);
     treeData.value = [fileNode];
+    clearAllAutoSaveDebounceTimers();
     openTabs.value = [];
     activeTabPath.value = "";
     await openFileNode(fileNode);
@@ -236,9 +256,14 @@ function resolveEntryPath(entry) {
 
 async function handleOpenFolder(folderPath) {
     try {
+        if (!(await saveDirtyTabs())) {
+            return;
+        }
+
         const tree = await App.LoadFolderTree(folderPath);
         selectedFolder.value = folderPath;
         treeData.value = tree;
+        clearAllAutoSaveDebounceTimers();
         openTabs.value = [];
         activeTabPath.value = "";
     } catch (error) {
@@ -258,6 +283,9 @@ async function openFileNode(node) {
         encoding: "utf-8",
         dirty: false,
         saving: false,
+        saveError: "",
+        changeVersion: 0,
+        savedVersion: 0,
     };
 
     openTabs.value = [...openTabs.value, tab];
@@ -280,6 +308,9 @@ async function openFileNode(node) {
             encoding: content.encoding || "utf-8",
             dirty: false,
             saving: false,
+            saveError: "",
+            changeVersion: 0,
+            savedVersion: 0,
             status: "ready",
         });
     } catch (error) {
@@ -299,9 +330,14 @@ async function handleSelectFolder() {
             return;
         }
 
+        if (!(await saveDirtyTabs())) {
+            return;
+        }
+
         const tree = await App.LoadFolderTree(folder);
         selectedFolder.value = folder;
         treeData.value = tree;
+        clearAllAutoSaveDebounceTimers();
         openTabs.value = [];
         activeTabPath.value = "";
     } catch (error) {
@@ -325,12 +361,23 @@ function handleChangeTab(path) {
     activeTabPath.value = path;
 }
 
-function handleCloseTab(path) {
+async function handleCloseTab(path) {
     const currentIndex = openTabs.value.findIndex((tab) => tab.path === path);
     if (currentIndex === -1) {
         return;
     }
 
+    let currentTab = openTabs.value.find((tab) => tab.path === path);
+    if (currentTab?.dirty) {
+        await handleSaveTab(path);
+        currentTab = openTabs.value.find((tab) => tab.path === path);
+    }
+
+    if (currentTab?.dirty || currentTab?.saving) {
+        return;
+    }
+
+    clearAutoSaveDebounceTimer(path);
     const nextTabs = openTabs.value.filter((tab) => tab.path !== path);
     openTabs.value = nextTabs;
 
@@ -352,44 +399,99 @@ function handlePreviewError(path, error) {
 
 function handleContentChange(path) {
     const tab = openTabs.value.find((item) => item.path === path);
-    if (!tab || tab.previewType !== "code" || tab.dirty) {
+    if (!tab || tab.previewType !== "code" || tab.status !== "ready") {
         return;
     }
 
     updateTab(path, {
         dirty: true,
+        saveError: "",
+        changeVersion: (tab.changeVersion ?? 0) + 1,
     });
+
+    scheduleAutoSave(path);
 }
 
 async function handleSaveTab(path = activeTabPath.value) {
     const tab = openTabs.value.find((item) => item.path === path);
-    if (!tab || tab.previewType !== "code" || tab.status !== "ready") {
+    if (
+        !tab ||
+        tab.previewType !== "code" ||
+        tab.status !== "ready" ||
+        tab.saving
+    ) {
         return;
     }
 
-    updateTab(path, { saving: true });
+    clearAutoSaveDebounceTimer(path);
+
+    const saveVersion = tab.changeVersion ?? 0;
+    const content = previewTabs.value?.getCodeContent(path) ?? tab.content;
+
+    updateTab(path, { saving: true, saveError: "" });
     try {
-        const content = previewTabs.value?.getCodeContent(path) ?? tab.content;
         await App.SaveFile(tab.path, content);
+
+        const currentTab = openTabs.value.find((item) => item.path === path);
+        if (!currentTab) {
+            return;
+        }
+
+        const hasNewerChanges = (currentTab.changeVersion ?? 0) > saveVersion;
         updateTab(path, {
-            content,
-            dirty: false,
+            ...(hasNewerChanges ? {} : { content }),
+            dirty: hasNewerChanges,
             saving: false,
+            savedVersion: hasNewerChanges
+                ? (currentTab.savedVersion ?? 0)
+                : saveVersion,
             error: "",
+            saveError: "",
         });
+
+        if (hasNewerChanges) {
+            scheduleAutoSave(path);
+        }
     } catch (error) {
         updateTab(path, {
             saving: false,
-            status: "error",
-            error: normalizeError(error, "保存文件失败"),
+            dirty: true,
+            saveError: normalizeError(error, "保存文件失败"),
         });
     }
+}
+
+async function saveDirtyTabs() {
+    const dirtyPaths = openTabs.value
+        .filter(
+            (tab) =>
+                tab.dirty &&
+                tab.status === "ready" &&
+                tab.previewType === "code",
+        )
+        .map((tab) => tab.path);
+
+    for (const path of dirtyPaths) {
+        await handleSaveTab(path);
+    }
+
+    return dirtyPaths.every((path) => {
+        const tab = openTabs.value.find((item) => item.path === path);
+        return !tab || (!tab.dirty && !tab.saving);
+    });
 }
 
 function handleGlobalShortcut(event) {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         void handleSaveTab();
+    }
+}
+
+function toggleSidebar() {
+    sidebarOpen.value = !sidebarOpen.value;
+    if (!sidebarOpen.value) {
+        stopResize();
     }
 }
 
@@ -483,6 +585,65 @@ function startResize(event) {
 
 function stopResize() {
     removeResizeListeners?.();
+}
+
+function startAutoSaveInterval() {
+    // 清理旧的定时器
+    if (autoSaveIntervalTimer) {
+        clearInterval(autoSaveIntervalTimer);
+    }
+
+    // 启动定时保存：每60秒检查所有脏tabs并保存
+    autoSaveIntervalTimer = setInterval(() => {
+        openTabs.value.forEach((tab) => {
+            // 只保存真正修改过的tabs（优化1：智能节流）
+            if (
+                tab.dirty &&
+                tab.status === "ready" &&
+                tab.previewType === "code" &&
+                !tab.saving
+            ) {
+                void handleSaveTab(tab.path);
+            }
+        });
+    }, AUTO_SAVE_INTERVAL_DELAY);
+}
+
+function scheduleAutoSave(path) {
+    clearAutoSaveDebounceTimer(path);
+    autoSaveDebounceTimers.set(
+        path,
+        setTimeout(() => {
+            autoSaveDebounceTimers.delete(path);
+            void handleSaveTab(path);
+        }, AUTO_SAVE_DEBOUNCE_DELAY),
+    );
+}
+
+function clearAutoSaveDebounceTimer(path) {
+    const timer = autoSaveDebounceTimers.get(path);
+    if (!timer) {
+        return;
+    }
+
+    clearTimeout(timer);
+    autoSaveDebounceTimers.delete(path);
+}
+
+function clearAllAutoSaveDebounceTimers() {
+    autoSaveDebounceTimers.forEach((timer) => clearTimeout(timer));
+    autoSaveDebounceTimers.clear();
+}
+
+function stopAutoSave() {
+    // 清理防抖定时器
+    clearAllAutoSaveDebounceTimers();
+
+    // 清理定时保存定时器
+    if (autoSaveIntervalTimer) {
+        clearInterval(autoSaveIntervalTimer);
+        autoSaveIntervalTimer = null;
+    }
 }
 </script>
 

@@ -397,6 +397,38 @@ input {
     white-space: nowrap;
 }
 
+.preview-tabs__status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.preview-tabs__status--dirty {
+    color: #f59e0b;
+}
+
+.preview-tabs__status--saving {
+    color: #3b82f6;
+    animation: spin 1s linear infinite;
+}
+
+.preview-tabs__status--error {
+    color: #ef4444;
+    font-weight: 700;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .preview-tabs__close {
     display: inline-flex;
     align-items: center;

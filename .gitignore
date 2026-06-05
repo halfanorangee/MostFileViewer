@@ -4,6 +4,8 @@ Thumbs.db
 *.swp
 *.swo
 *.tmp
+.idea/
+.vscode/
 
 # Logs
 *.log
@@ -19,19 +21,22 @@ pnpm-debug.log*
 *.dylib
 *.test
 *.out
+coverage.out
 
 # Local binaries / generated executables
 /bin/
 AnyFileViewer
-previewer
-previewer.exe
 
 # Wails / app build output
 /build/bin/
+/build/*.syso
 /frontend/dist/
+/frontend/bindings/
+/frontend/src/generated/
 
 # Frontend dependencies
 /frontend/node_modules/
+/frontend/.vite/
 
 # Environment files
 .env
@@ -39,5 +44,6 @@ previewer.exe
 !.env.example
 
 # Temporary or local-only files
+.task/
 nul.download
 frontend/nul.download

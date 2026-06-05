@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -246,11 +247,49 @@ func writeFileAtomically(path string, data []byte, perm os.FileMode) error {
 	if err := os.Chmod(tmpName, perm); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if runtime.GOOS == "windows" {
+		if err := replaceFileOnWindows(path, tmpName); err != nil {
+			return err
+		}
+	} else if err := os.Rename(tmpName, path); err != nil {
 		return err
 	}
 
 	removeTemp = false
+	return nil
+}
+
+func replaceFileOnWindows(path string, tmpName string) error {
+	backup, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".bak-*")
+	if err != nil {
+		return err
+	}
+	backupName := backup.Name()
+	if err := backup.Close(); err != nil {
+		_ = os.Remove(backupName)
+		return err
+	}
+	if err := os.Remove(backupName); err != nil {
+		return err
+	}
+
+	backupMoved := false
+	defer func() {
+		if backupMoved {
+			_ = os.Remove(backupName)
+		}
+	}()
+
+	if err := os.Rename(path, backupName); err != nil {
+		return err
+	}
+	backupMoved = true
+
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Rename(backupName, path)
+		return err
+	}
+
 	return nil
 }
 
