@@ -32,6 +32,8 @@ type FileTreeNode struct {
 	Path      string         `json:"path"`
 	Type      string         `json:"type"`
 	Extension string         `json:"extension"`
+	Loaded    bool           `json:"loaded"`
+	HasChild  bool           `json:"hasChild"`
 	Children  []FileTreeNode `json:"children,omitempty"`
 }
 
@@ -40,6 +42,7 @@ type FileContent struct {
 	Path      string `json:"path"`
 	Extension string `json:"extension"`
 	Base64    string `json:"base64"`
+	Content   string `json:"content"`
 	Encoding  string `json:"encoding"`
 }
 
@@ -125,12 +128,39 @@ func (a *App) LoadFolderTree(root string) ([]FileTreeNode, error) {
 		return nil, errors.New("所选路径不是文件夹")
 	}
 
-	nodes, err := scanFolder(cleanRoot)
+	nodes, err := scanFolderLevel(cleanRoot)
 	if err != nil {
 		return nil, fmt.Errorf("扫描文件夹失败: %w", err)
 	}
 
 	a.currentRoot = cleanRoot
+	return nodes, nil
+}
+
+func (a *App) LoadFolderChildren(path string) ([]FileTreeNode, error) {
+	cleanPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("解析文件夹路径失败: %w", err)
+	}
+	if strings.TrimSpace(a.currentRoot) == "" {
+		a.currentRoot = cleanPath
+	}
+	if !isPathWithinRoot(a.currentRoot, cleanPath) {
+		return nil, errors.New("当前文件夹不在已打开文件夹范围内")
+	}
+
+	info, err := os.Stat(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("文件夹不存在或无法访问: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, errors.New("当前路径不是文件夹")
+	}
+
+	nodes, err := scanFolderLevel(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("扫描文件夹失败: %w", err)
+	}
 	return nodes, nil
 }
 
@@ -150,13 +180,26 @@ func (a *App) ReadFile(path string) (*FileContent, error) {
 		return nil, fmt.Errorf("读取文件失败: %w", err)
 	}
 
-	return &FileContent{
+	extension := strings.ToLower(filepath.Ext(info.Name()))
+	content := &FileContent{
 		Name:      info.Name(),
 		Path:      cleanPath,
-		Extension: strings.ToLower(filepath.Ext(info.Name())),
-		Base64:    base64.StdEncoding.EncodeToString(data),
-		Encoding:  detectTextEncoding(data),
-	}, nil
+		Extension: extension,
+	}
+
+	if isOfficePreviewExtension(extension) {
+		content.Base64 = base64.StdEncoding.EncodeToString(data)
+		return content, nil
+	}
+
+	encoding := detectTextEncoding(data)
+	text, err := decodeText(data, encoding)
+	if err != nil {
+		return nil, fmt.Errorf("解码文件内容失败: %w", err)
+	}
+	content.Content = text
+	content.Encoding = encoding
+	return content, nil
 }
 
 func (a *App) SaveFile(path string, content string) error {
@@ -214,11 +257,18 @@ func (a *App) validateFilePath(path string) (string, os.FileInfo, error) {
 }
 
 func maxPreviewSize(name string) int64 {
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".docx", ".xlsx", ".xls", ".xlsm", ".xltx", ".xltm":
+	if isOfficePreviewExtension(strings.ToLower(filepath.Ext(name))) {
 		return maxOfficePreviewBytes
+	}
+	return maxTextPreviewBytes
+}
+
+func isOfficePreviewExtension(extension string) bool {
+	switch extension {
+	case ".docx", ".xlsx", ".xls", ".xlsm", ".xltx", ".xltm":
+		return true
 	default:
-		return maxTextPreviewBytes
+		return false
 	}
 }
 
@@ -293,7 +343,7 @@ func replaceFileOnWindows(path string, tmpName string) error {
 	return nil
 }
 
-func scanFolder(root string) ([]FileTreeNode, error) {
+func scanFolderLevel(root string) ([]FileTreeNode, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
@@ -311,13 +361,11 @@ func scanFolder(root string) ([]FileTreeNode, error) {
 
 		if entry.IsDir() {
 			node.Type = "folder"
-			children, childErr := scanFolder(fullPath)
-			if childErr != nil {
-				return nil, childErr
-			}
-			node.Children = children
+			node.Loaded = false
+			node.HasChild = folderHasChildren(fullPath)
 		} else {
 			node.Type = "file"
+			node.Loaded = true
 		}
 
 		nodes = append(nodes, node)
@@ -331,6 +379,11 @@ func scanFolder(root string) ([]FileTreeNode, error) {
 	})
 
 	return nodes, nil
+}
+
+func folderHasChildren(path string) bool {
+	entries, err := os.ReadDir(path)
+	return err == nil && len(entries) > 0
 }
 
 func detectTextEncoding(data []byte) string {
@@ -382,6 +435,37 @@ func encodeText(content string, encoding string, originalData []byte) ([]byte, e
 		return append(bom, encoded...), nil
 	}
 	return encoded, nil
+}
+
+func decodeText(data []byte, encoding string) (string, error) {
+	trimmed := data
+	var decoder transform.Transformer
+
+	switch strings.ToLower(encoding) {
+	case "utf-16le":
+		if bytes.HasPrefix(trimmed, []byte{0xFF, 0xFE}) {
+			trimmed = trimmed[2:]
+		}
+		decoder = textunicode.UTF16(textunicode.LittleEndian, textunicode.IgnoreBOM).NewDecoder()
+	case "utf-16be":
+		if bytes.HasPrefix(trimmed, []byte{0xFE, 0xFF}) {
+			trimmed = trimmed[2:]
+		}
+		decoder = textunicode.UTF16(textunicode.BigEndian, textunicode.IgnoreBOM).NewDecoder()
+	case "gbk", "gb18030":
+		decoder = simplifiedchinese.GB18030.NewDecoder()
+	default:
+		if bytes.HasPrefix(trimmed, []byte{0xEF, 0xBB, 0xBF}) {
+			trimmed = trimmed[3:]
+		}
+		return string(trimmed), nil
+	}
+
+	decoded, _, err := transform.Bytes(decoder, trimmed)
+	if err != nil {
+		return "", err
+	}
+	return string(decoded), nil
 }
 
 func isPathWithinRoot(root, candidate string) bool {

@@ -1,4 +1,4 @@
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { columnLabel } from "./utils";
 import {
   getColumnStyle,
@@ -14,9 +14,12 @@ import {
 import {
   ROW_HEADER_WIDTH,
   COLUMN_HEADER_HEIGHT,
+  DEFAULT_COLUMN_WIDTH,
+  DEFAULT_ROW_HEIGHT,
   VIRTUAL_OVERSCAN_ROWS,
   VIRTUAL_OVERSCAN_COLS,
 } from "./constants";
+import { runExcelWorkerTask } from "./workerClient";
 
 /**
  * Core hook for virtual scrolling computed properties.
@@ -38,6 +41,8 @@ export function useVirtualScroll(state) {
   const isGridWorksheet = computed(() =>
     Boolean(activeWorksheet.value?.__previewGrid),
   );
+  const workerAxisMetrics = ref(null);
+  let axisMetricsRequest = 0;
 
   const renderBounds = computed(() => {
     const ws = activeWorksheet.value;
@@ -55,35 +60,69 @@ export function useVirtualScroll(state) {
   });
 
   const axisMetrics = computed(() => {
-    const ws = activeWorksheet.value;
+    if (workerAxisMetrics.value) {
+      return workerAxisMetrics.value;
+    }
+
     const bounds = renderBounds.value;
-    const rowOffsets = new Array(bounds.rows + 1);
-    const colOffsets = new Array(bounds.cols + 1);
-    rowOffsets[0] = COLUMN_HEADER_HEIGHT * zoom.value;
-    colOffsets[0] = ROW_HEADER_WIDTH;
-
-    for (let r = 1; r <= bounds.rows; r += 1) {
-      const row = isGridWorksheet.value ? null : ws?.getRow?.(r);
-      rowOffsets[r] =
-        rowOffsets[r - 1] +
-        getRowHeight(r, row, zoom.value, customRowHeights, sizeKeyFn) *
-          zoom.value;
-    }
-
-    for (let c = 1; c <= bounds.cols; c += 1) {
-      const column = isGridWorksheet.value ? null : ws?.getColumn?.(c);
-      colOffsets[c] =
-        colOffsets[c - 1] +
-        getColumnWidth(c, column, customColumnWidths, sizeKeyFn) * zoom.value;
-    }
-
     return {
-      rowOffsets,
-      colOffsets,
-      totalHeight: rowOffsets[bounds.rows] ?? COLUMN_HEADER_HEIGHT * zoom.value,
-      totalWidth: colOffsets[bounds.cols] ?? ROW_HEADER_WIDTH,
+      rowOffsets: [COLUMN_HEADER_HEIGHT * zoom.value],
+      colOffsets: [ROW_HEADER_WIDTH],
+      totalHeight:
+        COLUMN_HEADER_HEIGHT * zoom.value +
+        bounds.rows * DEFAULT_ROW_HEIGHT * zoom.value,
+      totalWidth:
+        ROW_HEADER_WIDTH + bounds.cols * DEFAULT_COLUMN_WIDTH * zoom.value,
     };
   });
+
+  watch(
+    [
+      activeWorksheet,
+      renderBounds,
+      zoom,
+      () => customColumnWidths.value,
+      () => customRowHeights.value,
+    ],
+    () => {
+      const ws = activeWorksheet.value;
+      const bounds = renderBounds.value;
+      axisMetricsRequest += 1;
+      const requestId = axisMetricsRequest;
+
+      if (!ws || !bounds.rows || !bounds.cols) {
+        workerAxisMetrics.value = null;
+        return;
+      }
+
+      const worksheetSizes = extractWorksheetSizes(ws, zoom.value);
+
+      runExcelWorkerTask("axisMetrics", {
+        rows: bounds.rows,
+        cols: bounds.cols,
+        zoom: zoom.value,
+        rowHeaderWidth: ROW_HEADER_WIDTH,
+        columnHeaderHeight: COLUMN_HEADER_HEIGHT,
+        defaultRowHeight: DEFAULT_ROW_HEIGHT,
+        defaultColumnWidth: DEFAULT_COLUMN_WIDTH,
+        rowHeights: worksheetSizes.rowHeights,
+        columnWidths: worksheetSizes.columnWidths,
+        customRowHeights: extractCustomSizes(customRowHeights.value),
+        customColumnWidths: extractCustomSizes(customColumnWidths.value),
+      })
+        .then((metrics) => {
+          if (requestId === axisMetricsRequest) {
+            workerAxisMetrics.value = metrics;
+          }
+        })
+        .catch(() => {
+          if (requestId === axisMetricsRequest) {
+            workerAxisMetrics.value = null;
+          }
+        });
+    },
+    { immediate: true },
+  );
 
   const virtualRange = computed(() => {
     const bounds = renderBounds.value;
@@ -92,6 +131,15 @@ export function useVirtualScroll(state) {
     const { width, height } = viewport.value;
 
     if (!bounds.rows || !bounds.cols) {
+      return {
+        rowStart: 1,
+        rowEnd: 0,
+        colStart: 1,
+        colEnd: 0,
+      };
+    }
+
+    if (!workerAxisMetrics.value) {
       return {
         rowStart: 1,
         rowEnd: 0,
@@ -208,6 +256,58 @@ function findOffsetIndex(offsets, value) {
   }
 
   return Math.max(1, low);
+}
+
+function extractCustomSizes(sizes) {
+  const result = {};
+  for (const [key, value] of Object.entries(sizes ?? {})) {
+    const index = Number(String(key).split(":").pop());
+    if (Number.isFinite(index) && index > 0) {
+      result[index] = value;
+    }
+  }
+  return result;
+}
+
+function extractWorksheetSizes(worksheet, currentZoom) {
+  if (worksheet.__previewGrid) {
+    return { rowHeights: {}, columnWidths: {} };
+  }
+
+  const rowHeights = {};
+  for (const [index, row] of Object.entries(worksheet._rows ?? {})) {
+    if (!row?.height) continue;
+    const rowNumber = Number(index) + 1;
+    if (Number.isFinite(rowNumber) && rowNumber > 0) {
+      rowHeights[rowNumber] = getRowHeight(
+        rowNumber,
+        row,
+        currentZoom,
+        emptySizesRef,
+        emptySizeKey,
+      );
+    }
+  }
+
+  const columnWidths = {};
+  worksheet.columns?.forEach((column, index) => {
+    if (!column?.width) return;
+    const columnNumber = index + 1;
+    columnWidths[columnNumber] = getColumnWidth(
+      columnNumber,
+      column,
+      emptySizesRef,
+      emptySizeKey,
+    );
+  });
+
+  return { rowHeights, columnWidths };
+}
+
+const emptySizesRef = { value: {} };
+
+function emptySizeKey() {
+  return "";
 }
 
 function buildRenderableRow(
@@ -347,6 +447,8 @@ function withVirtualCellPosition(cell, rowNumber, columnNumber, metrics) {
 
   return {
     ...cell,
+    rowNumber,
+    columnNumber,
     style: {
       ...cell.style,
       top: `${top}px`,

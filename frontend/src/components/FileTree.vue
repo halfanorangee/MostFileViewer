@@ -7,6 +7,7 @@
       :node="node"
       :active-path="activePath"
       @open-file="$emit('open-file', $event)"
+      @load-folder="$emit('load-folder', $event)"
     />
   </div>
 </template>
@@ -25,5 +26,5 @@ defineProps({
   }
 });
 
-defineEmits(['open-file']);
+defineEmits(['open-file', 'load-folder']);
 </script>

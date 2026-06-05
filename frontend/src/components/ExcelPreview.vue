@@ -13,6 +13,35 @@
             <span v-if="renderNotice" class="excel-viewer__notice">
                 {{ renderNotice }}
             </span>
+            <div class="excel-viewer__search">
+                <input
+                    v-model="searchQuery"
+                    class="excel-viewer__search-input"
+                    type="search"
+                    placeholder="搜索当前工作表"
+                    :disabled="!hasRenderableData"
+                    @keydown.enter.prevent="handleSearchEnter"
+                />
+                <span class="excel-viewer__search-count">
+                    {{ searchStatusText }}
+                </span>
+                <button
+                    class="excel-viewer__search-button"
+                    type="button"
+                    :disabled="!searchMatches.length"
+                    @click="goToPreviousSearchMatch"
+                >
+                    上一个
+                </button>
+                <button
+                    class="excel-viewer__search-button"
+                    type="button"
+                    :disabled="!searchMatches.length"
+                    @click="goToNextSearchMatch"
+                >
+                    下一个
+                </button>
+            </div>
             <span class="excel-viewer__zoom-label">
                 {{ Math.round(zoom * 100) }}%
             </span>
@@ -81,6 +110,12 @@
                         v-show="!cell.hidden"
                         :key="cell.address"
                         class="excel-viewer__cell"
+                        :class="{
+                            'excel-viewer__cell--search-match':
+                                isSearchMatch(cell),
+                            'excel-viewer__cell--search-active':
+                                isActiveSearchMatch(cell),
+                        }"
                         :style="cell.style"
                     >
                         <template v-if="cell.richText.length">
@@ -111,7 +146,11 @@ import {
 } from "vue";
 
 import { toArrayBuffer } from "../composables/excel/utils";
-import { getColumnWidth, getRowHeight } from "../composables/excel/styles";
+import {
+    formatCellValue,
+    getColumnWidth,
+    getRowHeight,
+} from "../composables/excel/styles";
 import {
     isCsvFile,
     parseCsvWorkbook,
@@ -125,6 +164,7 @@ import {
     ROW_HEADER_WIDTH,
     COLUMN_HEADER_HEIGHT,
 } from "../composables/excel/constants";
+import { runExcelWorkerTask } from "../composables/excel/workerClient";
 
 // ── Props & Emits ──────────────────────────────────────────
 
@@ -145,6 +185,9 @@ const activeSheet = ref("");
 const zoom = ref(1);
 const customColumnWidths = ref({});
 const customRowHeights = ref({});
+const searchQuery = ref("");
+const searchMatches = ref([]);
+const activeMatchIndex = ref(-1);
 
 const tableWrapperRef = ref(null);
 const viewport = shallowRef({ width: 0, height: 0 });
@@ -155,6 +198,8 @@ let xlsxFallbackData = null;
 const worksheetCache = new WeakMap();
 let resizeObserver = null;
 let observedWrapper = null;
+let searchDebounceTimer = null;
+let searchSequence = 0;
 
 // ── Sheet key helper ───────────────────────────────────────
 
@@ -182,8 +227,13 @@ const activeWorksheet = computed(() => {
 
 // ── Virtual scroll ─────────────────────────────────────────
 
-const { hasRenderableData, virtualSheetStyle, virtualColHeaders, virtualRows } =
-    useVirtualScroll({
+const {
+    hasRenderableData,
+    virtualSheetStyle,
+    virtualColHeaders,
+    virtualRows,
+    axisMetrics,
+} = useVirtualScroll({
         activeWorksheet,
         zoom,
         viewport,
@@ -198,6 +248,28 @@ const cornerStyle = computed(() => ({
     width: `${ROW_HEADER_WIDTH}px`,
     height: `${COLUMN_HEADER_HEIGHT * zoom.value}px`,
 }));
+
+const normalizedSearchQuery = computed(() =>
+    searchQuery.value.trim().toLowerCase(),
+);
+
+const searchMatchKeys = computed(
+    () =>
+        new Set(
+            searchMatches.value.map((match) => cellKey(match.row, match.col)),
+        ),
+);
+
+const activeSearchMatchKey = computed(() => {
+    const match = searchMatches.value[activeMatchIndex.value];
+    return match ? cellKey(match.row, match.col) : "";
+});
+
+const searchStatusText = computed(() => {
+    if (!normalizedSearchQuery.value) return "";
+    if (!searchMatches.value.length) return "无结果";
+    return `${activeMatchIndex.value + 1}/${searchMatches.value.length}`;
+});
 
 // ── Resize / Zoom handlers ─────────────────────────────────
 
@@ -277,6 +349,152 @@ function handleTableScroll(event) {
     }
 }
 
+// ── Search ─────────────────────────────────────────────────
+
+function cellKey(row, col) {
+    return `${row}:${col}`;
+}
+
+function scheduleSearch() {
+    if (searchDebounceTimer !== null) {
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = null;
+    }
+
+    if (!normalizedSearchQuery.value) {
+        searchSequence += 1;
+        searchMatches.value = [];
+        activeMatchIndex.value = -1;
+        return;
+    }
+
+    searchDebounceTimer = setTimeout(() => {
+        searchDebounceTimer = null;
+        void rebuildSearchMatches();
+    }, 120);
+}
+
+async function rebuildSearchMatches() {
+    const worksheet = activeWorksheet.value;
+    const query = normalizedSearchQuery.value;
+    const currentSearch = ++searchSequence;
+
+    if (!worksheet || !query) {
+        searchMatches.value = [];
+        activeMatchIndex.value = -1;
+        return;
+    }
+
+    let matches = [];
+    try {
+        matches = await (worksheet.__previewGrid
+            ? collectGridSearchMatches(worksheet, query)
+            : collectExcelSearchMatches(worksheet, query));
+    } catch {
+        matches = [];
+    }
+
+    if (currentSearch !== searchSequence) {
+        return;
+    }
+
+    searchMatches.value = matches;
+    activeMatchIndex.value = matches.length ? 0 : -1;
+    if (matches.length) {
+        nextTick(() => scrollToSearchMatch(matches[0]));
+    }
+}
+
+async function collectGridSearchMatches(worksheet, query) {
+    return runExcelWorkerTask("gridSearch", {
+        rows: worksheet.rows,
+        query,
+    });
+}
+
+async function collectExcelSearchMatches(worksheet, query) {
+    const items = [];
+    worksheet.eachRow?.({ includeEmpty: false }, (row, rowNumber) => {
+        row.eachCell?.({ includeEmpty: false }, (cell, colNumber) => {
+            const text = String(formatCellValue(cell.value, cell) ?? "");
+            items.push({ row: rowNumber, col: colNumber, text });
+        });
+    });
+    return runExcelWorkerTask("textsSearch", { items, query });
+}
+
+function handleSearchEnter(event) {
+    if (event.shiftKey) {
+        goToPreviousSearchMatch();
+        return;
+    }
+    goToNextSearchMatch();
+}
+
+function goToNextSearchMatch() {
+    if (!searchMatches.value.length) return;
+    const nextIndex =
+        activeMatchIndex.value < 0
+            ? 0
+            : (activeMatchIndex.value + 1) % searchMatches.value.length;
+    setActiveSearchMatch(nextIndex);
+}
+
+function goToPreviousSearchMatch() {
+    if (!searchMatches.value.length) return;
+    const nextIndex =
+        activeMatchIndex.value < 0
+            ? searchMatches.value.length - 1
+            : (activeMatchIndex.value - 1 + searchMatches.value.length) %
+              searchMatches.value.length;
+    setActiveSearchMatch(nextIndex);
+}
+
+function setActiveSearchMatch(index) {
+    activeMatchIndex.value = index;
+    nextTick(() => scrollToSearchMatch(searchMatches.value[index]));
+}
+
+function scrollToSearchMatch(match) {
+    const wrapper = tableWrapperRef.value;
+    if (!wrapper || !match) return;
+
+    const metrics = axisMetrics.value;
+    const cellTop = metrics.rowOffsets[match.row - 1] ?? 0;
+    const cellBottom = metrics.rowOffsets[match.row] ?? cellTop;
+    const cellLeft = metrics.colOffsets[match.col - 1] ?? 0;
+    const cellRight = metrics.colOffsets[match.col] ?? cellLeft;
+    const headerHeight = COLUMN_HEADER_HEIGHT * zoom.value;
+    const rowHeaderWidth = ROW_HEADER_WIDTH;
+    const bodyHeight = Math.max(0, wrapper.clientHeight - headerHeight);
+    const bodyWidth = Math.max(0, wrapper.clientWidth - rowHeaderWidth);
+
+    const top = clampScrollPosition(
+        cellTop - headerHeight - (bodyHeight - (cellBottom - cellTop)) / 2,
+        Math.max(0, metrics.totalHeight - wrapper.clientHeight),
+    );
+    const left = clampScrollPosition(
+        cellLeft - rowHeaderWidth - (bodyWidth - (cellRight - cellLeft)) / 2,
+        Math.max(0, metrics.totalWidth - wrapper.clientWidth),
+    );
+
+    wrapper.scrollTop = top;
+    wrapper.scrollLeft = left;
+    scrollPosition.value = { left, top };
+}
+
+function clampScrollPosition(value, max) {
+    return Math.min(Math.max(0, value), max);
+}
+
+function isSearchMatch(cell) {
+    return searchMatchKeys.value.has(cellKey(cell.rowNumber, cell.columnNumber));
+}
+
+function isActiveSearchMatch(cell) {
+    return activeSearchMatchKey.value === cellKey(cell.rowNumber, cell.columnNumber);
+}
+
 // ── Parsing ────────────────────────────────────────────────
 
 const renderNotice = computed(() => "");
@@ -289,6 +507,9 @@ async function parseExcel(src) {
     xlsxFallbackData = null;
     customColumnWidths.value = {};
     customRowHeights.value = {};
+    searchQuery.value = "";
+    searchMatches.value = [];
+    activeMatchIndex.value = -1;
 
     try {
         const buffer = toArrayBuffer(src);
@@ -299,16 +520,25 @@ async function parseExcel(src) {
                 name: ws.name,
             }));
         } else {
-            const [{ default: ExcelJS }, { default: JSZip }] =
-                await Promise.all([import("exceljs"), import("jszip")]);
-            const workbook = new ExcelJS.Workbook();
-            await workbook.xlsx.load(buffer);
-            workbookData = workbook;
-            xlsxFallbackData = await parseXlsxFallbackWorkbook(buffer, JSZip);
-            sheets.value = getWorkbookSheetNames(
-                workbook,
-                xlsxFallbackData,
-            ).map((name) => ({ name }));
+            try {
+                const { default: ExcelJS } = await import("exceljs");
+                const workbook = new ExcelJS.Workbook();
+                await workbook.xlsx.load(buffer);
+                workbookData = workbook;
+                sheets.value = getWorkbookSheetNames(workbook, null).map(
+                    (name) => ({ name }),
+                );
+            } catch (error) {
+                const { default: JSZip } = await import("jszip");
+                xlsxFallbackData = await parseXlsxFallbackWorkbook(
+                    buffer,
+                    JSZip,
+                );
+                workbookData = xlsxFallbackData;
+                sheets.value = getWorkbookSheetNames(null, xlsxFallbackData).map(
+                    (name) => ({ name }),
+                );
+            }
         }
 
         if (sheets.value.length > 0) {
@@ -340,6 +570,11 @@ watch(
 
 watch(activeSheet, () => {
     nextTick(updateViewport);
+    scheduleSearch();
+});
+
+watch(normalizedSearchQuery, () => {
+    scheduleSearch();
 });
 
 onMounted(() => {
@@ -371,6 +606,11 @@ onBeforeUnmount(() => {
         cancelAnimationFrame(updateViewportRafId);
         updateViewportRafId = null;
     }
+    if (searchDebounceTimer !== null) {
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = null;
+    }
+    searchSequence += 1;
     updateViewportPending = false;
     observedWrapper = null;
     window.removeEventListener("resize", updateViewport);
@@ -389,6 +629,7 @@ onBeforeUnmount(() => {
 .excel-viewer__toolbar {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 12px;
     padding: 8px 12px;
     border-bottom: 1px solid #e6edf7;
@@ -418,6 +659,59 @@ onBeforeUnmount(() => {
     white-space: nowrap;
     font-size: 12px;
     color: #9a3412;
+}
+
+.excel-viewer__search {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.excel-viewer__search-input {
+    width: min(240px, 32vw);
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid #d7deea;
+    border-radius: 4px;
+    background: #fff;
+    color: #1f2937;
+    font-size: 13px;
+    outline: none;
+}
+
+.excel-viewer__search-input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.excel-viewer__search-input:disabled,
+.excel-viewer__search-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.excel-viewer__search-count {
+    min-width: 46px;
+    color: #64748b;
+    font-size: 12px;
+    text-align: center;
+}
+
+.excel-viewer__search-button {
+    height: 28px;
+    padding: 0 8px;
+    border: 1px solid #d7deea;
+    border-radius: 4px;
+    background: #fff;
+    color: #334155;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.excel-viewer__search-button:not(:disabled):hover {
+    background: #f3f7ff;
+    border-color: #c5d2e6;
 }
 
 .excel-viewer__zoom-label {
@@ -526,5 +820,32 @@ onBeforeUnmount(() => {
     line-height: 1.4;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.excel-viewer__cell--search-match {
+    box-shadow: inset 0 0 0 2px #f59e0b;
+}
+
+.excel-viewer__cell--search-active {
+    z-index: 1;
+    box-shadow:
+        inset 0 0 0 2px #2563eb,
+        0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+
+@media (max-width: 768px) {
+    .excel-viewer__search {
+        order: 3;
+        width: 100%;
+    }
+
+    .excel-viewer__search-input {
+        flex: 1;
+        width: auto;
+    }
+
+    .excel-viewer__zoom-label {
+        margin-left: 0;
+    }
 }
 </style>

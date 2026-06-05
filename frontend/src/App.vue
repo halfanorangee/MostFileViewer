@@ -58,6 +58,7 @@
                             :nodes="treeData"
                             :active-path="activeTabPath"
                             @open-file="handleOpenFile"
+                            @load-folder="handleLoadFolderChildren"
                         />
                     </div>
                 </aside>
@@ -271,6 +272,26 @@ async function handleOpenFolder(folderPath) {
     }
 }
 
+async function handleLoadFolderChildren(node) {
+    if (!node || node.type !== "folder" || node.loaded) {
+        return;
+    }
+
+    try {
+        const children = await App.LoadFolderChildren(node.path);
+        treeData.value = updateTreeNode(treeData.value, node.path, {
+            children,
+            loaded: true,
+            hasChild: children.length > 0,
+        });
+    } catch (error) {
+        treeData.value = updateTreeNode(treeData.value, node.path, {
+            loaded: true,
+            hasChild: false,
+        });
+    }
+}
+
 async function openFileNode(node) {
     const tab = {
         path: node.path,
@@ -294,17 +315,12 @@ async function openFileNode(node) {
     try {
         const content = await App.ReadFile(node.path);
         const previewType = getPreviewType(content.extension || node.extension);
+        const isCodePreview = previewType === "code";
         updateTab(node.path, {
             extension: content.extension || node.extension,
             previewType,
-            source:
-                previewType === "code"
-                    ? null
-                    : base64ToArrayBuffer(content.base64),
-            content:
-                previewType === "code"
-                    ? base64ToText(content.base64, content.encoding)
-                    : "",
+            source: isCodePreview ? null : base64ToArrayBuffer(content.base64),
+            content: isCodePreview ? content.content || "" : "",
             encoding: content.encoding || "utf-8",
             dirty: false,
             saving: false,
@@ -501,6 +517,21 @@ function updateTab(path, patch) {
     );
 }
 
+function updateTreeNode(nodes, path, patch) {
+    return nodes.map((node) => {
+        if (node.path === path) {
+            return { ...node, ...patch };
+        }
+        if (!node.children?.length) {
+            return node;
+        }
+        return {
+            ...node,
+            children: updateTreeNode(node.children, path, patch),
+        };
+    });
+}
+
 function getPreviewType(extension) {
     const normalized = (extension || "").toLowerCase();
     if (normalized === ".docx") {
@@ -516,30 +547,15 @@ function getPreviewType(extension) {
 }
 
 function base64ToArrayBuffer(base64) {
+    if (!base64) {
+        return null;
+    }
     const binary = window.atob(base64);
     const bytes = new Uint8Array(binary.length);
     for (let index = 0; index < binary.length; index += 1) {
         bytes[index] = binary.charCodeAt(index);
     }
     return bytes.buffer;
-}
-
-function base64ToText(base64, encoding = "utf-8") {
-    const bytes = new Uint8Array(base64ToArrayBuffer(base64));
-    return new TextDecoder(normalizeTextEncoding(encoding), {
-        fatal: false,
-    }).decode(bytes);
-}
-
-function normalizeTextEncoding(encoding) {
-    const normalized = String(encoding || "").toLowerCase();
-    if (["gbk", "gb2312", "gb18030"].includes(normalized)) {
-        return "gb18030";
-    }
-    if (normalized === "utf-16le" || normalized === "utf-16be") {
-        return normalized;
-    }
-    return "utf-8";
 }
 
 function normalizeError(error, fallback) {

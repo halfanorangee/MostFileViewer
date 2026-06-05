@@ -27,6 +27,7 @@
                 :depth="depth + 1"
                 :active-path="activePath"
                 @open-file="$emit('open-file', $event)"
+                @load-folder="$emit('load-folder', $event)"
             />
         </div>
     </div>
@@ -51,7 +52,7 @@ const props = defineProps({
     },
 });
 
-const emit = defineEmits(["open-file"]);
+const emit = defineEmits(["open-file", "load-folder"]);
 const isFolder = computed(() => props.node.type === "folder");
 const expanded = ref(props.depth < 1);
 
@@ -65,6 +66,9 @@ const caret = computed(() => {
 function handleClick() {
     if (isFolder.value) {
         expanded.value = !expanded.value;
+        if (expanded.value && props.node.hasChild && !props.node.loaded) {
+            emit("load-folder", props.node);
+        }
         return;
     }
 
