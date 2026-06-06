@@ -89,7 +89,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import TitleBar from "./components/TitleBar.vue";
 import FileTree from "./components/FileTree.vue";
 import PreviewTabs from "./components/PreviewTabs.vue";
@@ -165,6 +165,8 @@ async function openFileInWorkspace(filePath) {
     selectedFolder.value = getParentPath(filePath);
     treeData.value = [fileNode];
     clearAllAutoSaveDebounceTimers();
+    releaseAllTabPayloads();
+    await nextTick();
     openTabs.value = [];
     activeTabPath.value = "";
     await openFileNode(fileNode);
@@ -265,6 +267,8 @@ async function handleOpenFolder(folderPath) {
         selectedFolder.value = folderPath;
         treeData.value = tree;
         clearAllAutoSaveDebounceTimers();
+        releaseAllTabPayloads();
+        await nextTick();
         openTabs.value = [];
         activeTabPath.value = "";
     } catch (error) {
@@ -354,6 +358,8 @@ async function handleSelectFolder() {
         selectedFolder.value = folder;
         treeData.value = tree;
         clearAllAutoSaveDebounceTimers();
+        releaseAllTabPayloads();
+        await nextTick();
         openTabs.value = [];
         activeTabPath.value = "";
     } catch (error) {
@@ -394,6 +400,9 @@ async function handleCloseTab(path) {
     }
 
     clearAutoSaveDebounceTimer(path);
+    releaseTabPayload(path);
+    await nextTick();
+
     const nextTabs = openTabs.value.filter((tab) => tab.path !== path);
     openTabs.value = nextTabs;
 
@@ -518,6 +527,27 @@ function toggleSidebar() {
     if (!sidebarOpen.value) {
         stopResize();
     }
+}
+
+function releaseTabPayload(path) {
+    updateTab(path, {
+        source: null,
+        content: "",
+        error: "",
+    });
+}
+
+function releaseAllTabPayloads() {
+    if (!openTabs.value.length) {
+        return;
+    }
+
+    openTabs.value = openTabs.value.map((tab) => ({
+        ...tab,
+        source: null,
+        content: "",
+        error: "",
+    }));
 }
 
 function updateTab(path, patch) {

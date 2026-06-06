@@ -1,15 +1,15 @@
 {
 	"fixed": {
-		"file_version": "{{.Info.ProductVersion}}"
+		"file_version": "0.0.1"
 	},
 	"info": {
 		"0000": {
-			"ProductVersion": "{{.Info.ProductVersion}}",
-			"CompanyName": "{{.Info.CompanyName}}",
-			"FileDescription": "{{.Info.ProductName}}",
-			"LegalCopyright": "{{.Info.Copyright}}",
-			"ProductName": "{{.Info.ProductName}}",
-			"Comments": "{{.Info.Comments}}"
+			"ProductVersion": "0.0.1",
+			"CompanyName": "WangXiaohui",
+			"FileDescription": "万能预览器",
+			"LegalCopyright": "(c) 2025, WangXiaohui",
+			"ProductName": "AnyFileViewer",
+			"Comments": "万能预览器"
 		}
 	}
 }

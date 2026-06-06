@@ -28,8 +28,7 @@ coverage.out
 AnyFileViewer
 
 # Wails / app build output
-/build/bin/
-/build/*.syso
+/build/
 /frontend/dist/
 /frontend/bindings/
 /frontend/src/generated/

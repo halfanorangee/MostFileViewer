@@ -161,7 +161,6 @@ import {
     ROW_HEADER_WIDTH,
     COLUMN_HEADER_HEIGHT,
 } from "../composables/excel/constants";
-import { runExcelWorkerTask } from "../composables/excel/workerClient";
 
 // ── Props & Emits ──────────────────────────────────────────
 
@@ -193,11 +192,13 @@ const scrollPosition = shallowRef({ left: 0, top: 0 });
 
 let workbookData = null;
 let xlsxFallbackData = null;
-const worksheetCache = new WeakMap();
+let worksheetCache = new WeakMap();
 let resizeObserver = null;
 let observedWrapper = null;
 let searchDebounceTimer = null;
 let searchSequence = 0;
+let parseSequence = 0;
+let disposed = false;
 
 // ── Sheet key helper ───────────────────────────────────────
 
@@ -396,8 +397,8 @@ async function rebuildSearchMatches() {
     let matches = [];
     try {
         matches = await (worksheet.__previewGrid
-            ? collectGridSearchMatches(worksheet, query)
-            : collectExcelSearchMatches(worksheet, query));
+            ? collectGridSearchMatches(worksheet, query, currentSearch)
+            : collectExcelSearchMatches(worksheet, query, currentSearch));
     } catch {
         matches = [];
     }
@@ -413,22 +414,66 @@ async function rebuildSearchMatches() {
     }
 }
 
-async function collectGridSearchMatches(worksheet, query) {
-    return runExcelWorkerTask("gridSearch", {
-        rows: worksheet.rows,
-        query,
-    });
+async function collectGridSearchMatches(worksheet, query, searchId) {
+    const matches = [];
+    const rows = worksheet.rows ?? [];
+
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        if (!isSearchActive(searchId)) {
+            return [];
+        }
+
+        const row = rows[rowIndex] ?? [];
+        for (let colIndex = 0; colIndex < row.length; colIndex += 1) {
+            const text = String(row[colIndex] ?? "");
+            if (text.toLowerCase().includes(query)) {
+                matches.push({ row: rowIndex + 1, col: colIndex + 1, text });
+            }
+        }
+
+        if (rowIndex > 0 && rowIndex % SEARCH_YIELD_INTERVAL === 0) {
+            await yieldToMainThread();
+        }
+    }
+
+    return isSearchActive(searchId) ? matches : [];
 }
 
-async function collectExcelSearchMatches(worksheet, query) {
-    const items = [];
-    worksheet.eachRow?.({ includeEmpty: false }, (row, rowNumber) => {
+async function collectExcelSearchMatches(worksheet, query, searchId) {
+    const matches = [];
+    const rows = worksheet._rows ?? [];
+
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        if (!isSearchActive(searchId)) {
+            return [];
+        }
+
+        const row = rows[rowIndex];
+        if (!row) {
+            continue;
+        }
+
         row.eachCell?.({ includeEmpty: false }, (cell, colNumber) => {
             const text = String(formatCellValue(cell.value, cell) ?? "");
-            items.push({ row: rowNumber, col: colNumber, text });
+            if (text.toLowerCase().includes(query)) {
+                matches.push({ row: rowIndex + 1, col: colNumber, text });
+            }
         });
-    });
-    return runExcelWorkerTask("textsSearch", { items, query });
+
+        if (rowIndex > 0 && rowIndex % SEARCH_YIELD_INTERVAL === 0) {
+            await yieldToMainThread();
+        }
+    }
+
+    return isSearchActive(searchId) ? matches : [];
+}
+
+function isSearchActive(searchId) {
+    return !disposed && searchId === searchSequence;
+}
+
+function yieldToMainThread() {
+    return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function handleSearchEnter(event) {
@@ -511,6 +556,7 @@ function isActiveSearchMatch(cell) {
 const MAX_CSV_PREVIEW_BYTES = 8 * 1024 * 1024;
 const CSV_ROW_SOFT_LIMIT = 20000;
 const CSV_COLUMN_SOFT_LIMIT = 200;
+const SEARCH_YIELD_INTERVAL = 1000;
 
 function buildCsvNotice(buffer, worksheet) {
     const notices = [];
@@ -549,6 +595,8 @@ function ensureCsvPreviewSize(buffer) {
 // ── Parsing ────────────────────────────────────────────────
 
 async function parseExcel(src) {
+    const currentParse = ++parseSequence;
+    disposed = false;
     parsed.value = false;
     parseError.value = "";
     renderNotice.value = "";
@@ -563,6 +611,10 @@ async function parseExcel(src) {
 
     try {
         const buffer = toArrayBuffer(src);
+
+        if (!isParseActive(currentParse)) {
+            return;
+        }
 
         if (isCsvFile(props.extension)) {
             ensureCsvPreviewSize(buffer);
@@ -579,6 +631,10 @@ async function parseExcel(src) {
                 const { default: ExcelJS } = await import("exceljs");
                 const workbook = new ExcelJS.Workbook();
                 await workbook.xlsx.load(buffer);
+                if (!isParseActive(currentParse)) {
+                    workbookData = null;
+                    return;
+                }
                 workbookData = workbook;
                 sheets.value = getWorkbookSheetNames(workbook, null).map(
                     (name) => ({ name }),
@@ -589,6 +645,11 @@ async function parseExcel(src) {
                     buffer,
                     JSZip,
                 );
+                if (!isParseActive(currentParse)) {
+                    xlsxFallbackData = null;
+                    workbookData = null;
+                    return;
+                }
                 workbookData = xlsxFallbackData;
                 sheets.value = getWorkbookSheetNames(
                     null,
@@ -597,14 +658,24 @@ async function parseExcel(src) {
             }
         }
 
+        if (!isParseActive(currentParse)) {
+            return;
+        }
+
         if (sheets.value.length > 0) {
             activeSheet.value = sheets.value[0].name;
         }
 
         parsed.value = true;
         await nextTick();
-        updateViewport();
+        if (isParseActive(currentParse)) {
+            updateViewport();
+        }
     } catch (err) {
+        if (!isParseActive(currentParse)) {
+            return;
+        }
+
         renderNotice.value = "";
         parseError.value = String(
             err?.message ??
@@ -616,8 +687,32 @@ async function parseExcel(src) {
         emit("error", parseError.value);
         parsed.value = true;
         await nextTick();
-        updateViewport();
+        if (isParseActive(currentParse)) {
+            updateViewport();
+        }
     }
+}
+
+function isParseActive(parseId) {
+    return !disposed && parseId === parseSequence;
+}
+
+function clearPreviewState() {
+    workbookData = null;
+    xlsxFallbackData = null;
+    worksheetCache = new WeakMap();
+    sheets.value = [];
+    activeSheet.value = "";
+    customColumnWidths.value = {};
+    customRowHeights.value = {};
+    searchQuery.value = "";
+    searchMatches.value = [];
+    activeMatchIndex.value = -1;
+    renderNotice.value = "";
+    parseError.value = "";
+    parsed.value = false;
+    viewport.value = { width: 0, height: 0 };
+    scrollPosition.value = { left: 0, top: 0 };
 }
 
 // ── Watchers & Lifecycle ───────────────────────────────────
@@ -625,7 +720,12 @@ async function parseExcel(src) {
 watch(
     () => [props.src, props.extension, props.encoding],
     async ([newSrc]) => {
-        if (!newSrc) return;
+        if (!newSrc) {
+            parseSequence += 1;
+            searchSequence += 1;
+            clearPreviewState();
+            return;
+        }
         await parseExcel(newSrc);
     },
     { immediate: true },
@@ -663,6 +763,9 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+    disposed = true;
+    parseSequence += 1;
+    searchSequence += 1;
     cleanupResize();
     resizeObserver?.disconnect();
     if (updateViewportRafId !== null) {
@@ -673,9 +776,9 @@ onBeforeUnmount(() => {
         clearTimeout(searchDebounceTimer);
         searchDebounceTimer = null;
     }
-    searchSequence += 1;
     updateViewportPending = false;
     observedWrapper = null;
+    clearPreviewState();
     window.removeEventListener("resize", updateViewport);
 });
 </script>

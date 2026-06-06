@@ -147,7 +147,10 @@ onBeforeUnmount(() => {
 
     if (fitFrame) {
         cancelAnimationFrame(fitFrame);
+        fitFrame = 0;
     }
+
+    host.value?.replaceChildren();
 });
 </script>
 

@@ -194,6 +194,10 @@ watch(
 onBeforeUnmount(() => {
     renderSequence += 1;
     previewer?.destroy?.();
+    previewer = null;
+    host.value?.replaceChildren();
+    contentSize.value = { width: 0, height: 0 };
+    slideCount.value = 0;
 });
 </script>
 
