@@ -51,6 +51,7 @@
                             class="ppt-preview"
                             :src="tab.source"
                             @error="(err) => handleRenderError(tab.path, err)"
+                            @rendered="emit('preview-rendered', tab.path)"
                         />
 
                         <div
@@ -102,6 +103,7 @@ const emit = defineEmits([
     "change-tab",
     "close-tab",
     "preview-error",
+    "preview-rendered",
     "content-change",
     "save-tab",
 ]);

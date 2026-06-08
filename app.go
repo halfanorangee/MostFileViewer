@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,9 +37,15 @@ type FileContent struct {
 	Name      string `json:"name"`
 	Path      string `json:"path"`
 	Extension string `json:"extension"`
+	Size      int64  `json:"size"`
 	Base64    string `json:"base64"`
 	Content   string `json:"content"`
 	Encoding  string `json:"encoding"`
+}
+
+type FileChunk struct {
+	Base64 string `json:"base64"`
+	Size   int    `json:"size"`
 }
 
 func NewApp() *App {
@@ -165,25 +172,26 @@ func (a *App) ReadFile(path string) (*FileContent, error) {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(cleanPath)
-	if err != nil {
-		return nil, fmt.Errorf("读取文件失败: %w", err)
-	}
-
 	extension := strings.ToLower(filepath.Ext(info.Name()))
 	content := &FileContent{
 		Name:      info.Name(),
 		Path:      cleanPath,
 		Extension: extension,
+		Size:      info.Size(),
+	}
+
+	if isOfficePreviewExtension(extension) {
+		return content, nil
+	}
+
+	data, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("读取文件失败: %w", err)
 	}
 
 	if extension == ".csv" {
 		content.Base64 = base64.StdEncoding.EncodeToString(data)
 		content.Encoding = detectTextEncoding(data)
-		return content, nil
-	}
-	if isOfficePreviewExtension(extension) {
-		content.Base64 = base64.StdEncoding.EncodeToString(data)
 		return content, nil
 	}
 
@@ -195,6 +203,43 @@ func (a *App) ReadFile(path string) (*FileContent, error) {
 	content.Content = text
 	content.Encoding = encoding
 	return content, nil
+}
+
+func (a *App) ReadFileChunk(path string, offset int64, size int) (*FileChunk, error) {
+	cleanPath, info, err := a.validateFilePath(path)
+	if err != nil {
+		return nil, err
+	}
+	if offset < 0 {
+		return nil, errors.New("读取偏移量不能为负数")
+	}
+	if size <= 0 {
+		return nil, errors.New("读取大小必须大于 0")
+	}
+	const maxChunkSize = 2 * 1024 * 1024
+	if size > maxChunkSize {
+		size = maxChunkSize
+	}
+	if offset >= info.Size() {
+		return &FileChunk{}, nil
+	}
+
+	file, err := os.Open(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("打开文件失败: %w", err)
+	}
+	defer file.Close()
+
+	buffer := make([]byte, size)
+	n, err := file.ReadAt(buffer, offset)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("读取文件分块失败: %w", err)
+	}
+
+	return &FileChunk{
+		Base64: base64.StdEncoding.EncodeToString(buffer[:n]),
+		Size:   n,
+	}, nil
 }
 
 func (a *App) SaveFile(path string, content string) error {

@@ -78,6 +78,7 @@
                             @change-tab="handleChangeTab"
                             @close-tab="handleCloseTab"
                             @preview-error="handlePreviewError"
+                            @preview-rendered="handlePreviewRendered"
                             @content-change="handleContentChange"
                             @save-tab="handleSaveTab"
                         />
@@ -320,10 +321,13 @@ async function openFileNode(node) {
         const content = await App.ReadFile(node.path);
         const previewType = getPreviewType(content.extension || node.extension);
         const isCodePreview = previewType === "code";
+        const source = isCodePreview
+            ? null
+            : await loadBinarySource(content, previewType);
         updateTab(node.path, {
             extension: content.extension || node.extension,
             previewType,
-            source: isCodePreview ? null : base64ToArrayBuffer(content.base64),
+            source,
             content: isCodePreview ? content.content || "" : "",
             encoding: content.encoding || "utf-8",
             dirty: false,
@@ -429,6 +433,15 @@ function handlePreviewError(path, error) {
         status: "error",
         error: message,
     });
+}
+
+function handlePreviewRendered(path) {
+    const tab = openTabs.value.find((item) => item.path === path);
+    if (!tab || tab.previewType !== "ppt" || !tab.source) {
+        return;
+    }
+
+    updateTab(path, { source: null });
 }
 
 function handleContentChange(path) {
@@ -589,6 +602,48 @@ function getPreviewType(extension) {
         return "unsupported";
     }
     return "code";
+}
+
+async function loadBinarySource(content, previewType) {
+    if (!content) {
+        return null;
+    }
+    if (["word", "excel", "ppt"].includes(previewType)) {
+        return readFileInChunks(content.path, Number(content.size || 0));
+    }
+    return base64ToArrayBuffer(content.base64);
+}
+
+async function readFileInChunks(path, totalSize) {
+    if (!path || !Number.isFinite(totalSize) || totalSize <= 0) {
+        return new ArrayBuffer(0);
+    }
+
+    const chunkSize = 2 * 1024 * 1024;
+    const bytes = new Uint8Array(totalSize);
+    let offset = 0;
+
+    while (offset < totalSize) {
+        const nextSize = Math.min(chunkSize, totalSize - offset);
+        const chunk = await App.ReadFileChunk(path, offset, nextSize);
+        const actualSize = Number(chunk?.size || 0);
+        if (actualSize <= 0) {
+            break;
+        }
+
+        writeBase64Chunk(bytes, offset, chunk.base64, actualSize);
+        offset += actualSize;
+    }
+
+    return bytes.buffer;
+}
+
+function writeBase64Chunk(target, offset, base64, expectedSize) {
+    const binary = window.atob(base64 || "");
+    const size = Math.min(binary.length, expectedSize, target.length - offset);
+    for (let index = 0; index < size; index += 1) {
+        target[offset + index] = binary.charCodeAt(index);
+    }
 }
 
 function base64ToArrayBuffer(base64) {

@@ -26,7 +26,7 @@ const props = defineProps({
     },
 });
 
-const emit = defineEmits(["error"]);
+const emit = defineEmits(["error", "rendered"]);
 
 const BASE_WIDTH = 960;
 const ZOOM_STEP = 0.1;
@@ -168,6 +168,7 @@ async function renderSource(source) {
             pptx?.slides?.length ?? nextPreviewer.slideCount ?? 0;
         await nextTick();
         updateContentSize();
+        emit("rendered");
     } catch (error) {
         if (currentRender !== renderSequence) {
             return;
@@ -185,6 +186,10 @@ async function renderSource(source) {
 watch(
     [() => props.src, host],
     ([nextSource]) => {
+        if (!nextSource) {
+            return;
+        }
+
         zoom.value = 1;
         void renderSource(nextSource);
     },
