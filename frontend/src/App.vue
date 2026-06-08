@@ -598,17 +598,34 @@ function getPreviewType(extension) {
     if ([".pptx", ".pptm", ".ppsx", ".ppsm"].includes(normalized)) {
         return "ppt";
     }
+    if (isImageExtension(normalized)) {
+        return "image";
+    }
     if (normalized === ".xls") {
         return "unsupported";
     }
     return "code";
 }
 
+function isImageExtension(extension) {
+    return [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".svg",
+        ".ico",
+        ".avif",
+    ].includes(extension);
+}
+
 async function loadBinarySource(content, previewType) {
     if (!content) {
         return null;
     }
-    if (["word", "excel", "ppt"].includes(previewType)) {
+    if (["word", "excel", "ppt", "image"].includes(previewType)) {
         return readFileInChunks(content.path, Number(content.size || 0));
     }
     return base64ToArrayBuffer(content.base64);

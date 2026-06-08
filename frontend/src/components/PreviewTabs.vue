@@ -54,6 +54,15 @@
                             @rendered="emit('preview-rendered', tab.path)"
                         />
 
+                        <ImagePreview
+                            v-else-if="tab.previewType === 'image'"
+                            class="image-preview"
+                            :src="tab.source"
+                            :extension="tab.extension"
+                            :name="tab.name"
+                            @error="(err) => handleRenderError(tab.path, err)"
+                        />
+
                         <div
                             v-else-if="tab.previewType === 'unsupported'"
                             class="preview-tabs__state preview-tabs__state--error"
@@ -86,6 +95,7 @@ import { defineAsyncComponent, h, ref, watch } from "vue";
 const ExcelPreview = defineAsyncComponent(() => import("./ExcelPreview.vue"));
 const WordPreview = defineAsyncComponent(() => import("./WordPreview.vue"));
 const PptPreview = defineAsyncComponent(() => import("./PptPreview.vue"));
+const ImagePreview = defineAsyncComponent(() => import("./ImagePreview.vue"));
 const CodePreview = defineAsyncComponent(() => import("./CodePreview.vue"));
 
 const props = defineProps({
