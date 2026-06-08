@@ -598,6 +598,9 @@ function getPreviewType(extension) {
     if ([".pptx", ".pptm", ".ppsx", ".ppsm"].includes(normalized)) {
         return "ppt";
     }
+    if (normalized === ".pdf") {
+        return "pdf";
+    }
     if (isImageExtension(normalized)) {
         return "image";
     }
@@ -625,7 +628,7 @@ async function loadBinarySource(content, previewType) {
     if (!content) {
         return null;
     }
-    if (["word", "excel", "ppt", "image"].includes(previewType)) {
+    if (["word", "excel", "ppt", "image", "pdf"].includes(previewType)) {
         return readFileInChunks(content.path, Number(content.size || 0));
     }
     return base64ToArrayBuffer(content.base64);

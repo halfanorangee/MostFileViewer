@@ -13,6 +13,7 @@ import defaultFolderOpenedIcon from "@iconify-icons/vscode-icons/default-folder-
 import wordIcon from "@iconify-icons/vscode-icons/file-type-word2.js";
 import excelIcon from "@iconify-icons/vscode-icons/file-type-excel2.js";
 import powerpointIcon from "@iconify-icons/vscode-icons/file-type-powerpoint2.js";
+import pdfIcon from "@iconify-icons/vscode-icons/file-type-pdf2.js";
 import {
     DEFAULT_FILE,
     DEFAULT_FOLDER,
@@ -42,7 +43,7 @@ const props = defineProps({
     },
 });
 
-const officeIconsByExtension = {
+const fileIconsByExtension = {
     ".doc": wordIcon,
     ".docm": wordIcon,
     ".docx": wordIcon,
@@ -64,6 +65,7 @@ const officeIconsByExtension = {
     ".ppt": powerpointIcon,
     ".pptm": powerpointIcon,
     ".pptx": powerpointIcon,
+    ".pdf": pdfIcon,
 };
 
 const loadedIcon = ref(null);
@@ -72,7 +74,7 @@ const fallbackIcon = computed(() => {
         return props.open ? defaultFolderOpenedIcon : defaultFolderIcon;
     }
 
-    return resolveOfficeIcon() ?? defaultFileIcon;
+    return resolveExtensionIcon() ?? defaultFileIcon;
 });
 const iconData = computed(() => loadedIcon.value ?? fallbackIcon.value);
 
@@ -82,9 +84,9 @@ watch(
         const fallback = fallbackIcon.value;
         loadedIcon.value = fallback;
 
-        const officeIcon = resolveOfficeIcon();
-        if (officeIcon) {
-            loadedIcon.value = officeIcon;
+        const extensionIcon = resolveExtensionIcon();
+        if (extensionIcon) {
+            loadedIcon.value = extensionIcon;
             return;
         }
 
@@ -104,13 +106,13 @@ watch(
     { immediate: true },
 );
 
-function resolveOfficeIcon() {
+function resolveExtensionIcon() {
     if (props.type === "folder") {
         return null;
     }
 
     const extension = getFileExtension();
-    return officeIconsByExtension[extension] ?? null;
+    return fileIconsByExtension[extension] ?? null;
 }
 
 function getFileExtension() {

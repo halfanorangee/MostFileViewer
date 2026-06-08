@@ -180,7 +180,7 @@ func (a *App) ReadFile(path string) (*FileContent, error) {
 		Size:      info.Size(),
 	}
 
-	if isOfficePreviewExtension(extension) || isImagePreviewExtension(extension) {
+	if isOfficePreviewExtension(extension) || isImagePreviewExtension(extension) || isPdfPreviewExtension(extension) {
 		return content, nil
 	}
 
@@ -295,6 +295,15 @@ func (a *App) validateFilePath(path string) (string, os.FileInfo, error) {
 func isOfficePreviewExtension(extension string) bool {
 	switch extension {
 	case ".docx", ".xlsx", ".xls", ".xlsm", ".xltx", ".xltm", ".pptx", ".pptm", ".ppsx", ".ppsm":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPdfPreviewExtension(extension string) bool {
+	switch extension {
+	case ".pdf":
 		return true
 	default:
 		return false

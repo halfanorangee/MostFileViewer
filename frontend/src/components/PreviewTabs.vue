@@ -54,6 +54,14 @@
                             @rendered="emit('preview-rendered', tab.path)"
                         />
 
+                        <PdfPreview
+                            v-else-if="tab.previewType === 'pdf'"
+                            class="pdf-preview"
+                            :src="tab.source"
+                            :name="tab.name"
+                            @error="(err) => handleRenderError(tab.path, err)"
+                        />
+
                         <ImagePreview
                             v-else-if="tab.previewType === 'image'"
                             class="image-preview"
@@ -95,6 +103,7 @@ import { defineAsyncComponent, h, ref, watch } from "vue";
 const ExcelPreview = defineAsyncComponent(() => import("./ExcelPreview.vue"));
 const WordPreview = defineAsyncComponent(() => import("./WordPreview.vue"));
 const PptPreview = defineAsyncComponent(() => import("./PptPreview.vue"));
+const PdfPreview = defineAsyncComponent(() => import("./PdfPreview.vue"));
 const ImagePreview = defineAsyncComponent(() => import("./ImagePreview.vue"));
 const CodePreview = defineAsyncComponent(() => import("./CodePreview.vue"));
 
