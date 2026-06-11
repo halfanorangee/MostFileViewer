@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=AnyFileViewer
-Exec=AnyFileViewer
-Icon=AnyFileViewer
+Name=MostFileViewer
+Exec=MostFileViewer
+Icon=MostFileViewer
 Categories=Development;
 Terminal=false
 Keywords=wails

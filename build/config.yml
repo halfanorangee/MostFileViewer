@@ -6,8 +6,8 @@ version: "3"
 # This information is used to generate the build assets.
 info:
   companyName: "WangXiaohui"
-  productName: "AnyFileViewer"
-  productIdentifier: "com.wangxiaohui.anyfileviewer"
+  productName: "MostFileViewer"
+  productIdentifier: "com.wangxiaohui.mostfileviewer"
   description: "万能预览器"
   copyright: "(c) 2025, WangXiaohui"
   comments: "万能预览器"

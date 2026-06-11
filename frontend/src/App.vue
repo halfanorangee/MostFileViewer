@@ -94,7 +94,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import TitleBar from "./components/TitleBar.vue";
 import FileTree from "./components/FileTree.vue";
 import PreviewTabs from "./components/PreviewTabs.vue";
-import { App } from "../bindings/AnyFileViewer";
+import { App } from "../bindings/MostFileViewer";
 
 const selectedFolder = ref("");
 const treeData = ref([]);

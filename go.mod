@@ -1,4 +1,4 @@
-module AnyFileViewer
+module MostFileViewer
 
 go 1.25
 

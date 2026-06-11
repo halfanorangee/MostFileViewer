@@ -12,7 +12,7 @@ var assets embed.FS
 
 func main() {
 	app := application.New(application.Options{
-		Name:        "AnyFileViewer",
+		Name:        "MostFileViewer",
 		Description: "文件夹预览器 - 浏览目录并预览 Word、Excel 文件",
 		Services: []application.Service{
 			application.NewService(NewApp()),
@@ -26,7 +26,7 @@ func main() {
 	})
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "AnyFileViewer",
+		Title:            "MostFileViewer",
 		Width:            1024,
 		Height:           768,
 		Frameless:        true,

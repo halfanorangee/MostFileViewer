@@ -4,7 +4,7 @@
             class="title-bar__drag title-left"
             @dblclick="handleToggleMaximize"
         >
-            <span class="title-bar__title">AnyFileViewer</span>
+            <span class="title-bar__title">MostFileViewer</span>
             <div class="title-bar__menu" @mousedown.stop>
                 <button
                     v-if="showSidebarToggle"
