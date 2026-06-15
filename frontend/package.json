@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "generate:icons": "node scripts/generate-vscode-icon-map.mjs",
+    "postinstall": "node scripts/patch-pptx-preview.mjs",
     "dev": "vite",
     "build:dev": "npm run generate:icons && vite build --minify false --mode development",
     "build": "npm run generate:icons && vite build --mode production",
