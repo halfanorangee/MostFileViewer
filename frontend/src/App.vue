@@ -1,6 +1,6 @@
 <template>
     <TitleBar
-        :show-sidebar-toggle="Boolean(selectedFolder)"
+        :show-sidebar-toggle="isActualFolderPreview"
         :sidebar-open="sidebarOpen"
         @select-folder="handleSelectFolder"
         @select-file="handleSelectFile"
@@ -125,6 +125,17 @@ const folderName = computed(() => {
     return trimmed.split(/[\\/]/).pop() || trimmed;
 });
 
+// 判断是否是真正的文件夹预览（而不是单个文件预览）
+const isActualFolderPreview = computed(() => {
+    if (!selectedFolder.value) return false;
+    // 如果树数据只有一个文件节点，说明是单个文件预览
+    if (treeData.value.length === 1 && treeData.value[0].type === "file") {
+        return false;
+    }
+    // 否则是真正的文件夹预览
+    return true;
+});
+
 onMounted(() => {
     window.addEventListener("keydown", handleGlobalShortcut);
     startAutoSaveInterval();
@@ -144,7 +155,14 @@ async function handleSelectFile() {
         if (!filePath) {
             return;
         }
-        await openFileInWorkspace(filePath);
+
+        // 如果已有工作区，直接在预览区域添加新tab
+        if (selectedFolder.value) {
+            await addFileToWorkspace(filePath);
+        } else {
+            // 没有工作区时，打开单个文件（不显示侧边栏）
+            await openFileInWorkspace(filePath);
+        }
     } catch (error) {
         // silently ignore
     }
@@ -165,11 +183,33 @@ async function openFileInWorkspace(filePath) {
 
     selectedFolder.value = getParentPath(filePath);
     treeData.value = [fileNode];
+    sidebarOpen.value = false; // 选择单个文件时关闭侧边栏
     clearAllAutoSaveDebounceTimers();
     releaseAllTabPayloads();
     await nextTick();
     openTabs.value = [];
     activeTabPath.value = "";
+    await openFileNode(fileNode);
+}
+
+// 在已有工作区中直接添加新tab（不清除现有tabs）
+async function addFileToWorkspace(filePath) {
+    const fileName = getPathName(filePath);
+    const fileNode = {
+        name: fileName,
+        path: filePath,
+        type: "file",
+        extension: getPathExtension(fileName),
+    };
+
+    // 检查文件是否已在tabs中
+    const existingTab = openTabs.value.find((tab) => tab.path === filePath);
+    if (existingTab) {
+        activeTabPath.value = existingTab.path;
+        return;
+    }
+
+    // 直接打开新tab
     await openFileNode(fileNode);
 }
 
@@ -230,7 +270,12 @@ async function handleDrop(event) {
         // Fallback: try files
         const file = event.dataTransfer.files[0];
         if (file && file.path) {
-            await openFileInWorkspace(file.path);
+            // 如果已有工作区，直接添加新tab
+            if (selectedFolder.value) {
+                await addFileToWorkspace(file.path);
+            } else {
+                await openFileInWorkspace(file.path);
+            }
         }
         return;
     }
@@ -244,7 +289,12 @@ async function handleDrop(event) {
     } else {
         const filePath = await resolveEntryPath(entry);
         if (filePath) {
-            await openFileInWorkspace(filePath);
+            // 如果已有工作区，直接添加新tab
+            if (selectedFolder.value) {
+                await addFileToWorkspace(filePath);
+            } else {
+                await openFileInWorkspace(filePath);
+            }
         }
     }
 }
@@ -267,6 +317,7 @@ async function handleOpenFolder(folderPath) {
         const tree = await App.LoadFolderTree(folderPath);
         selectedFolder.value = folderPath;
         treeData.value = tree;
+        sidebarOpen.value = true; // 选择文件夹时显示侧边栏
         clearAllAutoSaveDebounceTimers();
         releaseAllTabPayloads();
         await nextTick();
@@ -361,6 +412,7 @@ async function handleSelectFolder() {
         const tree = await App.LoadFolderTree(folder);
         selectedFolder.value = folder;
         treeData.value = tree;
+        sidebarOpen.value = true; // 选择文件夹时显示侧边栏
         clearAllAutoSaveDebounceTimers();
         releaseAllTabPayloads();
         await nextTick();
@@ -536,6 +588,11 @@ function handleGlobalShortcut(event) {
 }
 
 function toggleSidebar() {
+    // 单个文件模式下不允许打开侧边栏
+    if (!isActualFolderPreview.value) {
+        sidebarOpen.value = false;
+        return;
+    }
     sidebarOpen.value = !sidebarOpen.value;
     if (!sidebarOpen.value) {
         stopResize();
