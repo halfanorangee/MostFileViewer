@@ -34,6 +34,17 @@ export function getWorksheetDimensions(worksheet) {
     };
 }
 
+export function getRenderableDimensions(worksheet) {
+    const base = getWorksheetDimensions(worksheet);
+    // 增加 1 行空白行和 1 列空白列用于边框渲染
+    return {
+        rows: base.rows + 1,
+        cols: base.cols + 1,
+        totalRows: base.rows,
+        totalCols: base.cols,
+    };
+}
+
 function scanWorksheetDimensions(worksheet) {
     let rows = 0;
     let cols = 0;

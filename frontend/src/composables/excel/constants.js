@@ -11,6 +11,10 @@ export const VIRTUAL_OVERSCAN_ROWS = 8;
 export const VIRTUAL_OVERSCAN_COLS = 3;
 export const POINT_TO_PX = 1.333;
 
+// 额外的空白行和列
+export const EXTRA_EMPTY_ROW_HEIGHT = 30;
+export const EXTRA_EMPTY_COLUMN_WIDTH = 100;
+
 export const THEME_COLORS = [
     "#FFFFFF",
     "#000000",

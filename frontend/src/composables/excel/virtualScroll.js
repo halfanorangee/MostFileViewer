@@ -8,7 +8,7 @@ import {
 } from "./styles";
 import {
   getWorksheetCache,
-  getWorksheetDimensions,
+  getRenderableDimensions,
   hasWorksheetDimensions,
 } from "./worksheet";
 import {
@@ -18,6 +18,8 @@ import {
   DEFAULT_ROW_HEIGHT,
   VIRTUAL_OVERSCAN_ROWS,
   VIRTUAL_OVERSCAN_COLS,
+  EXTRA_EMPTY_ROW_HEIGHT,
+  EXTRA_EMPTY_COLUMN_WIDTH,
 } from "./constants";
 import { runExcelWorkerTask } from "./workerClient";
 
@@ -48,10 +50,7 @@ export function useVirtualScroll(state) {
     const ws = activeWorksheet.value;
     if (!ws) return { rows: 0, cols: 0, totalRows: 0, totalCols: 0 };
 
-    const dimensions = getWorksheetDimensions(ws);
-    const totalRows = dimensions.rows;
-    const totalCols = dimensions.cols;
-    return { rows: totalRows, cols: totalCols, totalRows, totalCols };
+    return getRenderableDimensions(ws);
   });
 
   const hasRenderableData = computed(() => {
@@ -72,11 +71,20 @@ export function useVirtualScroll(state) {
     rowOffsets[0] = COLUMN_HEADER_HEIGHT * zoom.value;
     colOffsets[0] = ROW_HEADER_WIDTH;
 
-    for (let r = 1; r <= bounds.rows; r += 1) {
+    for (let r = 1; r <= bounds.totalRows; r += 1) {
       rowOffsets[r] = rowOffsets[r - 1] + DEFAULT_ROW_HEIGHT * zoom.value;
     }
-    for (let c = 1; c <= bounds.cols; c += 1) {
+    // 额外的空白行
+    for (let r = bounds.totalRows + 1; r <= bounds.rows; r += 1) {
+      rowOffsets[r] = rowOffsets[r - 1] + EXTRA_EMPTY_ROW_HEIGHT * zoom.value;
+    }
+
+    for (let c = 1; c <= bounds.totalCols; c += 1) {
       colOffsets[c] = colOffsets[c - 1] + DEFAULT_COLUMN_WIDTH * zoom.value;
+    }
+    // 额外的空白列
+    for (let c = bounds.totalCols + 1; c <= bounds.cols; c += 1) {
+      colOffsets[c] = colOffsets[c - 1] + EXTRA_EMPTY_COLUMN_WIDTH * zoom.value;
     }
 
     return {
@@ -111,6 +119,8 @@ export function useVirtualScroll(state) {
       runExcelWorkerTask("axisMetrics", {
         rows: bounds.rows,
         cols: bounds.cols,
+        totalRows: bounds.totalRows,
+        totalCols: bounds.totalCols,
         zoom: zoom.value,
         rowHeaderWidth: ROW_HEADER_WIDTH,
         columnHeaderHeight: COLUMN_HEADER_HEIGHT,
@@ -120,6 +130,8 @@ export function useVirtualScroll(state) {
         columnWidths: worksheetSizes.columnWidths,
         customRowHeights: extractCustomSizes(customRowHeights.value),
         customColumnWidths: extractCustomSizes(customColumnWidths.value),
+        extraEmptyRowHeight: EXTRA_EMPTY_ROW_HEIGHT,
+        extraEmptyColumnWidth: EXTRA_EMPTY_COLUMN_WIDTH,
       })
         .then((metrics) => {
           if (requestId === axisMetricsRequest) {
@@ -183,12 +195,14 @@ export function useVirtualScroll(state) {
     const { colStart, colEnd } = virtualRange.value;
     const headers = [];
     for (let c = colStart; c <= colEnd; c += 1) {
+      // 额外的空列没有列号标签
+      const isEmptyColumn = c > renderBounds.value.totalCols;
       headers.push({
         index: c,
-        label: columnLabel(c),
+        label: isEmptyColumn ? "" : columnLabel(c),
         style: {
           ...getColumnStyle(
-            isGridWorksheet.value ? null : ws.getColumn(c),
+            isGridWorksheet.value || isEmptyColumn ? null : ws.getColumn(c),
             c,
             zoom.value,
             (index, column) =>
@@ -210,6 +224,7 @@ export function useVirtualScroll(state) {
 
     const { rowStart, rowEnd, colStart, colEnd } = virtualRange.value;
     const scrollLeft = scrollPosition.value.left;
+    const totalRows = renderBounds.value.totalRows;
     const rows = [];
     for (let r = rowStart; r <= rowEnd; r += 1) {
       rows.push(
@@ -226,6 +241,8 @@ export function useVirtualScroll(state) {
           customRowHeights,
           worksheetCache,
           sizeKeyFn,
+          totalRows,
+          renderBounds.value.totalCols,
         ),
       );
     }
@@ -325,7 +342,12 @@ function buildRenderableRow(
   customRowHeights,
   worksheetCache,
   sizeKeyFn,
+  totalRows,
+  totalCols,
 ) {
+  // 额外的空白行没有行号
+  const isEmptyRow = rowNumber > totalRows;
+
   if (isGrid) {
     return buildGridRenderableRow(
       worksheet,
@@ -338,21 +360,25 @@ function buildRenderableRow(
       customColumnWidths,
       customRowHeights,
       sizeKeyFn,
+      totalRows,
+      totalCols,
     );
   }
 
-  const worksheetRow = worksheet.getRow(rowNumber);
+  const worksheetRow = isEmptyRow ? null : worksheet.getRow(rowNumber);
   const mergeMap = getWorksheetCache(worksheet, worksheetCache).mergeMap;
   const cells = [];
 
   for (let c = colStart; c <= colEnd; c += 1) {
-    const cell = worksheet.getCell(rowNumber, c);
-    const merge = mergeMap.get(`${rowNumber}:${c}`);
+    // 额外的空列没有单元格内容
+    const isEmptyCell = isEmptyRow || c > totalCols;
+    const cell = isEmptyCell ? { value: "", styles: {} } : worksheet.getCell(rowNumber, c);
+    const merge = isEmptyCell ? undefined : mergeMap.get(`${rowNumber}:${c}`);
     cells.push(
       withVirtualCellPosition(
         createRenderableCell(
           cell,
-          worksheet.getColumn(c),
+          isEmptyCell ? null : worksheet.getColumn(c),
           c,
           merge,
           zoom,
@@ -367,7 +393,7 @@ function buildRenderableRow(
   }
 
   return {
-    number: rowNumber,
+    number: isEmptyRow ? "" : rowNumber,
     headerStyle: getVirtualRowHeaderStyle(
       worksheetRow,
       rowNumber,
@@ -392,16 +418,22 @@ function buildGridRenderableRow(
   customColumnWidths,
   customRowHeights,
   sizeKeyFn,
+  totalRows,
+  totalCols,
 ) {
-  const values = worksheet.rows[rowNumber - 1] ?? [];
+  // 额外的空白行没有行号
+  const isEmptyRow = rowNumber > totalRows;
+  const values = isEmptyRow ? [] : worksheet.rows[rowNumber - 1] ?? [];
   const cells = [];
 
   for (let c = colStart; c <= colEnd; c += 1) {
-    const text = values[c - 1] ?? "";
+    // 额外的空列没有单元格内容
+    const isEmptyCell = isEmptyRow || c > totalCols;
+    const text = isEmptyCell ? "" : values[c - 1] ?? "";
     cells.push(
       withVirtualCellPosition(
         {
-          address: `${columnLabel(c)}${rowNumber}`,
+          address: isEmptyCell ? "" : `${columnLabel(c)}${rowNumber}`,
           text,
           richText: [],
           hidden: false,
@@ -423,7 +455,7 @@ function buildGridRenderableRow(
   }
 
   return {
-    number: rowNumber,
+    number: isEmptyRow ? "" : rowNumber,
     headerStyle: getVirtualRowHeaderStyle(
       null,
       rowNumber,
@@ -480,8 +512,8 @@ function getVirtualRowHeaderStyle(
   customRowHeights,
   sizeKeyFn,
 ) {
-  const height =
-    getRowHeight(index, row, zoom, customRowHeights, sizeKeyFn) * zoom;
+  // 使用 axisMetrics 中已计算的行高，确保与单元格高度一致
+  const height = metrics.rowOffsets[index] - metrics.rowOffsets[index - 1];
   return {
     top: `${metrics.rowOffsets[index - 1]}px`,
     left: `${scrollLeft}px`,
