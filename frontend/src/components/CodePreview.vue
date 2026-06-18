@@ -1,5 +1,8 @@
 <template>
-    <div ref="host" class="code-preview"></div>
+    <div>
+        <div ref="host" class="code-preview-wrapper"></div>
+        <div class="code-preview-status"></div>
+    </div>
 </template>
 
 <script setup>
@@ -340,12 +343,20 @@ function resolveLanguage(extension) {
 </script>
 
 <style scoped>
-.code-preview {
+.code-preview-wrapper {
     flex: 1;
     min-width: 0;
     min-height: 0;
-    height: 100%;
+    height: calc(100% - 24px);
     overflow: hidden;
     background: #fff;
+}
+.code-preview-status {
+    background: #f1f5f9;
+    height: 24px;
+    line-height: 24px;
+    padding: 0 12px;
+    font-size: 13px;
+    color: #64748b;
 }
 </style>
