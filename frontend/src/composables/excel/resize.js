@@ -4,7 +4,6 @@ import {
   MAX_ZOOM,
   ZOOM_STEP,
   MIN_COLUMN_WIDTH,
-  MAX_COLUMN_WIDTH,
   MIN_ROW_HEIGHT,
 } from "./constants";
 
@@ -63,9 +62,7 @@ export function createResizeHandlers(state) {
     const minSize =
       resizeState.type === "column" ? MIN_COLUMN_WIDTH : MIN_ROW_HEIGHT;
     const rawSize = (resizeState.startSize + delta) / zoom.value;
-    const nextSize = resizeState.type === "column"
-      ? Math.min(MAX_COLUMN_WIDTH, Math.max(minSize, rawSize))
-      : Math.max(minSize, rawSize);
+    const nextSize = Math.max(minSize, rawSize);
 
     if (resizeState.type === "column") {
       customColumnWidths.value = {
