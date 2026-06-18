@@ -7,7 +7,6 @@ import {
   MAX_COLUMN_WIDTH,
   DEFAULT_ROW_HEIGHT,
   MIN_ROW_HEIGHT,
-  MAX_ROW_HEIGHT,
 } from "./constants";
 
 export function getColumnWidth(index, column, customColumnWidths, sizeKeyFn) {
@@ -27,10 +26,7 @@ export function getRowHeight(index, row, zoom, customRowHeights, sizeKeyFn) {
   if (customHeight) return Math.max(minimumHeight, customHeight);
 
   if (!row?.height) return Math.max(minimumHeight, DEFAULT_ROW_HEIGHT);
-  return Math.min(
-    MAX_ROW_HEIGHT,
-    Math.max(minimumHeight, row.height * POINT_TO_PX),
-  );
+  return Math.max(minimumHeight, row.height * POINT_TO_PX);
 }
 
 export function getMinimumRowHeight(zoom) {

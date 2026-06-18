@@ -6,7 +6,6 @@ export const MIN_COLUMN_WIDTH = 48;
 export const MAX_COLUMN_WIDTH = 640;
 export const DEFAULT_ROW_HEIGHT = 28;
 export const MIN_ROW_HEIGHT = 28;
-export const MAX_ROW_HEIGHT = 240;
 export const ROW_HEADER_WIDTH = 40;
 export const COLUMN_HEADER_HEIGHT = 28;
 export const VIRTUAL_OVERSCAN_ROWS = 8;
