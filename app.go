@@ -24,7 +24,8 @@ import (
 )
 
 type App struct {
-	currentRoot string
+	currentRoot  string
+	allowedFiles map[string]struct{}
 }
 
 type FileTreeNode struct {
@@ -53,7 +54,9 @@ type FileChunk struct {
 }
 
 func NewApp() *App {
-	return &App{}
+	return &App{
+		allowedFiles: make(map[string]struct{}),
+	}
 }
 
 func (a *App) SelectFile() (string, error) {
@@ -82,7 +85,7 @@ func (a *App) SelectFile() (string, error) {
 		return "", errors.New("所选路径不是文件")
 	}
 
-	a.currentRoot = filepath.Dir(cleanPath)
+	a.allowFile(cleanPath)
 	return cleanPath, nil
 }
 
@@ -112,7 +115,6 @@ func (a *App) SelectFolder() (string, error) {
 		return "", errors.New("所选路径不是文件夹")
 	}
 
-	a.currentRoot = cleanPath
 	return cleanPath, nil
 }
 
@@ -140,6 +142,7 @@ func (a *App) LoadFolderTree(root string) ([]FileTreeNode, error) {
 	}
 
 	a.currentRoot = cleanRoot
+	a.resetAllowedFiles()
 	return nodes, nil
 }
 
@@ -301,7 +304,7 @@ func (a *App) validateFilePath(path string) (string, os.FileInfo, error) {
 	if strings.TrimSpace(a.currentRoot) == "" {
 		a.currentRoot = filepath.Dir(cleanPath)
 	}
-	if !isPathWithinRoot(a.currentRoot, cleanPath) {
+	if !isPathWithinRoot(a.currentRoot, cleanPath) && !a.isAllowedFile(cleanPath) {
 		return "", nil, errors.New("当前文件不在已打开文件夹范围内")
 	}
 
@@ -656,6 +659,28 @@ func decodeText(data []byte, encoding string) (string, error) {
 		return "", err
 	}
 	return string(decoded), nil
+}
+
+func (a *App) allowFile(path string) {
+	if a.allowedFiles == nil {
+		a.allowedFiles = make(map[string]struct{})
+	}
+	a.allowedFiles[path] = struct{}{}
+}
+
+func (a *App) resetAllowedFiles() {
+	if a.allowedFiles == nil {
+		a.allowedFiles = make(map[string]struct{})
+		return
+	}
+	for path := range a.allowedFiles {
+		delete(a.allowedFiles, path)
+	}
+}
+
+func (a *App) isAllowedFile(path string) bool {
+	_, ok := a.allowedFiles[path]
+	return ok
 }
 
 func isPathWithinRoot(root, candidate string) bool {
