@@ -80,6 +80,7 @@
                             @preview-error="handlePreviewError"
                             @preview-rendered="handlePreviewRendered"
                             @content-change="handleContentChange"
+                            @encoding-change="handleEncodingChange"
                             @save-tab="handleSaveTab"
                         />
                     </div>
@@ -511,6 +512,44 @@ function handleContentChange(path) {
     scheduleAutoSave(path);
 }
 
+async function handleEncodingChange(path, encoding) {
+    let tab = openTabs.value.find((item) => item.path === path);
+    if (!tab || tab.previewType !== "code" || tab.status !== "ready") {
+        return;
+    }
+    if (tab.encoding === encoding) {
+        return;
+    }
+    if (tab.dirty) {
+        await handleSaveTab(path);
+        tab = openTabs.value.find((item) => item.path === path);
+        if (!tab || tab.dirty || tab.saving || tab.status !== "ready") {
+            return;
+        }
+    }
+
+    clearAutoSaveDebounceTimer(path);
+    updateTab(path, { status: "loading", saveError: "" });
+    try {
+        const content = await App.ReadFileWithEncoding(tab.path, encoding);
+        updateTab(path, {
+            content: content.content || "",
+            encoding: content.encoding || encoding,
+            dirty: false,
+            saving: false,
+            saveError: "",
+            changeVersion: 0,
+            savedVersion: 0,
+            status: "ready",
+        });
+    } catch (error) {
+        updateTab(path, {
+            status: "ready",
+            saveError: normalizeError(error, "切换编码失败"),
+        });
+    }
+}
+
 async function handleSaveTab(path = activeTabPath.value) {
     const tab = openTabs.value.find((item) => item.path === path);
     if (
@@ -529,7 +568,7 @@ async function handleSaveTab(path = activeTabPath.value) {
 
     updateTab(path, { saving: true, saveError: "" });
     try {
-        await App.SaveFile(tab.path, content);
+        await App.SaveFile(tab.path, content, tab.encoding || "utf-8");
 
         const currentTab = openTabs.value.find((item) => item.path === path);
         if (!currentTab) {

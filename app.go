@@ -11,10 +11,14 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	textencoding "golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/encoding/traditionalchinese"
 	textunicode "golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 )
@@ -167,6 +171,14 @@ func (a *App) LoadFolderChildren(path string) ([]FileTreeNode, error) {
 }
 
 func (a *App) ReadFile(path string) (*FileContent, error) {
+	return a.readFile(path, "")
+}
+
+func (a *App) ReadFileWithEncoding(path string, encoding string) (*FileContent, error) {
+	return a.readFile(path, encoding)
+}
+
+func (a *App) readFile(path string, requestedEncoding string) (*FileContent, error) {
 	cleanPath, info, err := a.validateFilePath(path)
 	if err != nil {
 		return nil, err
@@ -189,13 +201,20 @@ func (a *App) ReadFile(path string) (*FileContent, error) {
 		return nil, fmt.Errorf("读取文件失败: %w", err)
 	}
 
+	encoding := detectTextEncoding(data)
+	if strings.TrimSpace(requestedEncoding) != "" {
+		encoding, err = normalizeTextEncoding(requestedEncoding)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if extension == ".csv" {
 		content.Base64 = base64.StdEncoding.EncodeToString(data)
-		content.Encoding = detectTextEncoding(data)
+		content.Encoding = encoding
 		return content, nil
 	}
 
-	encoding := detectTextEncoding(data)
 	text, err := decodeText(data, encoding)
 	if err != nil {
 		return nil, fmt.Errorf("解码文件内容失败: %w", err)
@@ -242,7 +261,7 @@ func (a *App) ReadFileChunk(path string, offset int64, size int) (*FileChunk, er
 	}, nil
 }
 
-func (a *App) SaveFile(path string, content string) error {
+func (a *App) SaveFile(path string, content string, encoding string) error {
 	cleanPath, info, err := a.validateFilePath(path)
 	if err != nil {
 		return err
@@ -253,7 +272,12 @@ func (a *App) SaveFile(path string, content string) error {
 		return fmt.Errorf("读取原文件失败: %w", err)
 	}
 
-	encodedContent, err := encodeText(content, detectTextEncoding(existingData), existingData)
+	encoding, err = normalizeTextEncoding(encoding)
+	if err != nil {
+		return err
+	}
+
+	encodedContent, err := encodeText(content, encoding, existingData)
 	if err != nil {
 		return fmt.Errorf("编码文件内容失败: %w", err)
 	}
@@ -443,35 +467,145 @@ func detectTextEncoding(data []byte) string {
 	if bytes.HasPrefix(data, []byte{0xFE, 0xFF}) {
 		return "utf-16be"
 	}
+	if encoding := detectUTF16ByNullPattern(data); encoding != "" {
+		return encoding
+	}
 	if utf8.Valid(data) {
 		return "utf-8"
 	}
-	return "gbk"
+
+	bestEncoding := "gbk"
+	bestScore := -1 << 30
+	for _, encoding := range []string{"gbk", "big5", "iso-8859-1"} {
+		text, err := decodeText(data, encoding)
+		if err != nil {
+			continue
+		}
+		if score := scoreDecodedText(text); score > bestScore {
+			bestEncoding = encoding
+			bestScore = score
+		}
+	}
+	return bestEncoding
+}
+
+func detectUTF16ByNullPattern(data []byte) string {
+	if len(data) < 4 {
+		return ""
+	}
+
+	limit := len(data)
+	if limit > 1024 {
+		limit = 1024
+	}
+	var evenNulls, oddNulls int
+	for i := 0; i < limit; i++ {
+		if data[i] != 0x00 {
+			continue
+		}
+		if i%2 == 0 {
+			evenNulls++
+		} else {
+			oddNulls++
+		}
+	}
+
+	pairs := limit / 2
+	if pairs == 0 {
+		return ""
+	}
+	if oddNulls > pairs/4 && evenNulls < oddNulls/4 {
+		return "utf-16le"
+	}
+	if evenNulls > pairs/4 && oddNulls < evenNulls/4 {
+		return "utf-16be"
+	}
+	return ""
+}
+
+func scoreDecodedText(text string) int {
+	score := 0
+	for _, r := range text {
+		switch {
+		case r == utf8.RuneError:
+			score -= 100
+		case r == '\t' || r == '\n' || r == '\r':
+			score += 2
+		case unicode.IsControl(r):
+			score -= 20
+		case unicode.Is(unicode.Han, r):
+			score += 8
+		case unicode.IsPrint(r):
+			score += 3
+		default:
+			score--
+		}
+	}
+	return score
+}
+
+func normalizeTextEncoding(encoding string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(encoding)) {
+	case "", "utf8", "utf-8":
+		return "utf-8", nil
+	case "gbk", "gb18030":
+		return "gbk", nil
+	case "gb2312", "gb-2312":
+		return "gb2312", nil
+	case "big5", "big-5":
+		return "big5", nil
+	case "utf-16le", "utf16le", "utf-16-le":
+		return "utf-16le", nil
+	case "utf-16be", "utf16be", "utf-16-be":
+		return "utf-16be", nil
+	case "iso-8859-1", "iso8859-1", "latin1", "latin-1":
+		return "iso-8859-1", nil
+	default:
+		return "", fmt.Errorf("不支持的编码格式: %s", encoding)
+	}
+}
+
+func encoderForTextEncoding(encoding string) textencoding.Encoding {
+	switch encoding {
+	case "gbk", "gb2312":
+		return simplifiedchinese.GB18030
+	case "big5":
+		return traditionalchinese.Big5
+	case "iso-8859-1":
+		return charmap.ISO8859_1
+	default:
+		return nil
+	}
 }
 
 func encodeText(content string, encoding string, originalData []byte) ([]byte, error) {
+	encoding, err := normalizeTextEncoding(encoding)
+	if err != nil {
+		return nil, err
+	}
+
 	var transformer transform.Transformer
 	var bom []byte
 
-	switch strings.ToLower(encoding) {
+	switch encoding {
 	case "utf-16le":
 		transformer = textunicode.UTF16(textunicode.LittleEndian, textunicode.IgnoreBOM).NewEncoder()
-		if bytes.HasPrefix(originalData, []byte{0xFF, 0xFE}) {
-			bom = []byte{0xFF, 0xFE}
-		}
+		bom = []byte{0xFF, 0xFE}
 	case "utf-16be":
 		transformer = textunicode.UTF16(textunicode.BigEndian, textunicode.IgnoreBOM).NewEncoder()
-		if bytes.HasPrefix(originalData, []byte{0xFE, 0xFF}) {
-			bom = []byte{0xFE, 0xFF}
-		}
-	case "gbk", "gb18030":
-		transformer = simplifiedchinese.GB18030.NewEncoder()
-	default:
+		bom = []byte{0xFE, 0xFF}
+	case "utf-8":
 		encoded := []byte(content)
 		if bytes.HasPrefix(originalData, []byte{0xEF, 0xBB, 0xBF}) {
 			return append([]byte{0xEF, 0xBB, 0xBF}, encoded...), nil
 		}
 		return encoded, nil
+	default:
+		textEncoding := encoderForTextEncoding(encoding)
+		if textEncoding == nil {
+			return nil, fmt.Errorf("不支持的编码格式: %s", encoding)
+		}
+		transformer = textEncoding.NewEncoder()
 	}
 
 	encoded, _, err := transform.Bytes(transformer, []byte(content))
@@ -485,10 +619,15 @@ func encodeText(content string, encoding string, originalData []byte) ([]byte, e
 }
 
 func decodeText(data []byte, encoding string) (string, error) {
+	encoding, err := normalizeTextEncoding(encoding)
+	if err != nil {
+		return "", err
+	}
+
 	trimmed := data
 	var decoder transform.Transformer
 
-	switch strings.ToLower(encoding) {
+	switch encoding {
 	case "utf-16le":
 		if bytes.HasPrefix(trimmed, []byte{0xFF, 0xFE}) {
 			trimmed = trimmed[2:]
@@ -499,13 +638,17 @@ func decodeText(data []byte, encoding string) (string, error) {
 			trimmed = trimmed[2:]
 		}
 		decoder = textunicode.UTF16(textunicode.BigEndian, textunicode.IgnoreBOM).NewDecoder()
-	case "gbk", "gb18030":
-		decoder = simplifiedchinese.GB18030.NewDecoder()
-	default:
+	case "utf-8":
 		if bytes.HasPrefix(trimmed, []byte{0xEF, 0xBB, 0xBF}) {
 			trimmed = trimmed[3:]
 		}
 		return string(trimmed), nil
+	default:
+		textEncoding := encoderForTextEncoding(encoding)
+		if textEncoding == nil {
+			return "", fmt.Errorf("不支持的编码格式: %s", encoding)
+		}
+		decoder = textEncoding.NewDecoder()
 	}
 
 	decoded, _, err := transform.Bytes(decoder, trimmed)

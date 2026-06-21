@@ -1,7 +1,24 @@
 <template>
     <div>
         <div ref="host" class="code-preview-wrapper"></div>
-        <div class="code-preview-status"></div>
+        <div class="code-preview-status">
+            <label class="code-preview-encoding">
+                <span>编码：</span>
+                <select
+                    :value="selectedEncoding"
+                    class="code-preview-encoding-select"
+                    @change="handleEncodingChange"
+                >
+                    <option
+                        v-for="encoding in encodingOptions"
+                        :key="encoding.value"
+                        :value="encoding.value"
+                    >
+                        {{ encoding.label }}
+                    </option>
+                </select>
+            </label>
+        </div>
     </div>
 </template>
 
@@ -36,9 +53,24 @@ const props = defineProps({
         type: String,
         default: "",
     },
+    encoding: {
+        type: String,
+        default: "utf-8",
+    },
 });
 
-const emit = defineEmits(["dirty", "save"]);
+const emit = defineEmits(["dirty", "save", "encoding-change"]);
+
+const encodingOptions = [
+    { label: "UTF-8", value: "utf-8" },
+    { label: "GBK", value: "gbk" },
+    { label: "GB2312", value: "gb2312" },
+    { label: "Big5", value: "big5" },
+    { label: "UTF-16 LE", value: "utf-16le" },
+    { label: "UTF-16 BE", value: "utf-16be" },
+    { label: "ISO-8859-1", value: "iso-8859-1" },
+];
+const selectedEncoding = ref(normalizeEncoding(props.encoding));
 
 const host = ref(null);
 const language = new Compartment();
@@ -58,6 +90,14 @@ const chineseSearchPhrases = CMState.phrases.of({
 });
 let editor = null;
 let syncingFromProps = false;
+
+watch(
+    () => props.encoding,
+    (encoding) => {
+        selectedEncoding.value = normalizeEncoding(encoding);
+    },
+    { immediate: true },
+);
 
 watch(
     [() => props.content, () => props.extension, host],
@@ -291,9 +331,23 @@ function getContent() {
     return editor?.state.doc.toString() ?? props.content;
 }
 
+function handleEncodingChange(event) {
+    const previousEncoding = selectedEncoding.value;
+    const encoding = normalizeEncoding(event.target.value);
+    emit("encoding-change", encoding);
+    selectedEncoding.value = previousEncoding;
+}
+
 defineExpose({
     getContent,
 });
+
+function normalizeEncoding(encoding) {
+    const normalized = (encoding || "utf-8").toLowerCase();
+    return encodingOptions.some((option) => option.value === normalized)
+        ? normalized
+        : "utf-8";
+}
 
 function resolveLanguage(extension) {
     switch ((extension || "").toLowerCase()) {
@@ -347,16 +401,40 @@ function resolveLanguage(extension) {
     flex: 1;
     min-width: 0;
     min-height: 0;
-    height: calc(100% - 24px);
+    height: calc(100% - 28px);
     overflow: hidden;
     background: #fff;
 }
 .code-preview-status {
     background: #f1f5f9;
-    height: 24px;
-    line-height: 24px;
+    height: 28px;
+    line-height: 28px;
     padding: 0 12px;
     font-size: 13px;
     color: #64748b;
+    display: flex;
+    align-items: center;
+    column-gap: 12px;
+}
+
+.code-preview-encoding {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.code-preview-encoding-select {
+    height: 20px;
+    padding: 0 20px 0 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 12px;
+    outline: none;
+}
+
+.code-preview-encoding-select:focus {
+    border-color: #2563eb;
 }
 </style>

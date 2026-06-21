@@ -87,7 +87,12 @@
                             class="code-preview"
                             :content="tab.content"
                             :extension="tab.extension"
+                            :encoding="tab.encoding"
                             @dirty="handleContentChange(tab.path)"
+                            @encoding-change="
+                                (encoding) =>
+                                    emit('encoding-change', tab.path, encoding)
+                            "
                             @save="emit('save-tab', tab.path)"
                         />
                     </div>
@@ -124,6 +129,7 @@ const emit = defineEmits([
     "preview-error",
     "preview-rendered",
     "content-change",
+    "encoding-change",
     "save-tab",
 ]);
 
