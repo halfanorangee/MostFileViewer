@@ -3,6 +3,22 @@
         <div ref="host" class="code-preview-wrapper"></div>
         <div class="code-preview-status">
             <label class="code-preview-encoding">
+                <span>语法：</span>
+                <select
+                    :value="selectedSyntax"
+                    class="code-preview-encoding-select"
+                    @change="handleSyntaxChange"
+                >
+                    <option
+                        v-for="syntax in syntaxOptions"
+                        :key="syntax.value"
+                        :value="syntax.value"
+                    >
+                        {{ syntax.label }}
+                    </option>
+                </select>
+            </label>
+            <label class="code-preview-encoding">
                 <span>编码：</span>
                 <select
                     :value="selectedEncoding"
@@ -87,6 +103,47 @@ const props = defineProps({
 
 const emit = defineEmits(["dirty", "save", "encoding-change"]);
 
+const syntaxOptions = [
+    { label: "自动检测", value: "auto" },
+    { label: "纯文本", value: "text" },
+    { label: "JavaScript / JSX", value: "javascript" },
+    { label: "TypeScript / TSX", value: "typescript" },
+    { label: "Vue", value: "vue" },
+    { label: "HTML", value: "html" },
+    { label: "CSS / SCSS / Less", value: "css" },
+    { label: "JSON", value: "json" },
+    { label: "Markdown", value: "markdown" },
+    { label: "Python", value: "python" },
+    { label: "Java", value: "java" },
+    { label: "C / C++", value: "cpp" },
+    { label: "C#", value: "csharp" },
+    { label: "Kotlin", value: "kotlin" },
+    { label: "Scala", value: "scala" },
+    { label: "Dart", value: "dart" },
+    { label: "Go", value: "go" },
+    { label: "Rust", value: "rust" },
+    { label: "PHP", value: "php" },
+    { label: "Ruby", value: "ruby" },
+    { label: "Swift", value: "swift" },
+    { label: "Lua", value: "lua" },
+    { label: "Perl", value: "perl" },
+    { label: "R", value: "r" },
+    { label: "Clojure", value: "clojure" },
+    { label: "Shell / Bash", value: "shell" },
+    { label: "PowerShell", value: "powershell" },
+    { label: "SQL", value: "sql" },
+    { label: "XML / SVG", value: "xml" },
+    { label: "YAML", value: "yaml" },
+    { label: "TOML", value: "toml" },
+    { label: "Properties / INI / ENV", value: "properties" },
+    { label: "Dockerfile", value: "dockerfile" },
+    { label: "CMake", value: "cmake" },
+    { label: "Protocol Buffers", value: "protobuf" },
+    { label: "Diff / Patch", value: "diff" },
+    { label: "Nginx", value: "nginx" },
+];
+const selectedSyntax = ref("auto");
+
 const encodingOptions = [
     { label: "UTF-8", value: "utf-8" },
     { label: "GBK", value: "gbk" },
@@ -124,6 +181,10 @@ watch(
     },
     { immediate: true },
 );
+
+watch([() => props.extension, () => props.name], () => {
+    selectedSyntax.value = "auto";
+});
 
 watch(
     [() => props.content, () => props.extension, () => props.name, host],
@@ -319,7 +380,7 @@ watch(
                                 font: "inherit",
                             },
                         }),
-                        language.of(resolveLanguage(extension, name)),
+                        language.of(resolveSelectedLanguage(extension, name)),
                     ],
                 }),
                 parent: container,
@@ -329,7 +390,7 @@ watch(
 
         if (editor.state.doc.toString() === content) {
             editor.dispatch({
-                effects: language.reconfigure(resolveLanguage(extension, name)),
+                effects: language.reconfigure(resolveSelectedLanguage(extension, name)),
             });
             return;
         }
@@ -341,7 +402,7 @@ watch(
                 to: editor.state.doc.length,
                 insert: content,
             },
-            effects: language.reconfigure(resolveLanguage(extension, name)),
+            effects: language.reconfigure(resolveSelectedLanguage(extension, name)),
         });
         syncingFromProps = false;
     },
@@ -364,6 +425,15 @@ function handleEncodingChange(event) {
     selectedEncoding.value = previousEncoding;
 }
 
+function handleSyntaxChange(event) {
+    selectedSyntax.value = event.target.value;
+    editor?.dispatch({
+        effects: language.reconfigure(
+            resolveSelectedLanguage(props.extension, props.name),
+        ),
+    });
+}
+
 defineExpose({
     getContent,
 });
@@ -373,6 +443,14 @@ function normalizeEncoding(encoding) {
     return encodingOptions.some((option) => option.value === normalized)
         ? normalized
         : "utf-8";
+}
+
+function resolveSelectedLanguage(extension, name) {
+    if (selectedSyntax.value !== "auto") {
+        return resolveLanguageBySyntaxKey(selectedSyntax.value);
+    }
+
+    return resolveLanguage(extension, name);
 }
 
 function resolveLanguage(extension, name) {
@@ -497,6 +575,83 @@ function resolveLanguage(extension, name) {
         case ".patch":
             return streamLanguage(diff);
         case ".nginx":
+            return streamLanguage(nginx);
+        default:
+            return [];
+    }
+}
+
+function resolveLanguageBySyntaxKey(syntax) {
+    switch (syntax) {
+        case "javascript":
+            return javascript({ jsx: true });
+        case "typescript":
+            return javascript({ jsx: true, typescript: true });
+        case "vue":
+            return vue({ base: html() });
+        case "html":
+            return html();
+        case "css":
+            return css();
+        case "json":
+            return json();
+        case "markdown":
+            return markdown();
+        case "python":
+            return python();
+        case "java":
+            return java();
+        case "cpp":
+            return cpp();
+        case "csharp":
+            return streamLanguage(csharp);
+        case "kotlin":
+            return streamLanguage(kotlin);
+        case "scala":
+            return streamLanguage(scala);
+        case "dart":
+            return streamLanguage(dart);
+        case "go":
+            return go();
+        case "rust":
+            return rust();
+        case "php":
+            return php();
+        case "ruby":
+            return streamLanguage(ruby);
+        case "swift":
+            return streamLanguage(swift);
+        case "lua":
+            return streamLanguage(lua);
+        case "perl":
+            return streamLanguage(perl);
+        case "r":
+            return streamLanguage(r);
+        case "clojure":
+            return streamLanguage(clojure);
+        case "shell":
+            return streamLanguage(shell);
+        case "powershell":
+            return streamLanguage(powerShell);
+        case "sql":
+            return sql();
+        case "xml":
+            return xml();
+        case "yaml":
+            return yaml();
+        case "toml":
+            return streamLanguage(toml);
+        case "properties":
+            return streamLanguage(properties);
+        case "dockerfile":
+            return streamLanguage(dockerFile);
+        case "cmake":
+            return streamLanguage(cmake);
+        case "protobuf":
+            return streamLanguage(protobuf);
+        case "diff":
+            return streamLanguage(diff);
+        case "nginx":
             return streamLanguage(nginx);
         default:
             return [];
