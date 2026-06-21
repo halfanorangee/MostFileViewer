@@ -27,6 +27,7 @@ import { onBeforeUnmount, ref, watch } from "vue";
 import { keymap } from "@codemirror/view";
 import { basicSetup, EditorView } from "codemirror";
 import { EditorState, Compartment } from "@codemirror/state";
+import { StreamLanguage } from "@codemirror/language";
 import {
     search,
     searchKeymap,
@@ -41,8 +42,29 @@ import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { java } from "@codemirror/lang-java";
 import { cpp } from "@codemirror/lang-cpp";
+import { go } from "@codemirror/lang-go";
+import { rust } from "@codemirror/lang-rust";
+import { php } from "@codemirror/lang-php";
 import { sql } from "@codemirror/lang-sql";
+import { vue } from "@codemirror/lang-vue";
 import { xml } from "@codemirror/lang-xml";
+import { yaml } from "@codemirror/lang-yaml";
+import { clojure } from "@codemirror/legacy-modes/mode/clojure";
+import { cmake } from "@codemirror/legacy-modes/mode/cmake";
+import { csharp, dart, kotlin, scala } from "@codemirror/legacy-modes/mode/clike";
+import { diff } from "@codemirror/legacy-modes/mode/diff";
+import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
+import { lua } from "@codemirror/legacy-modes/mode/lua";
+import { nginx } from "@codemirror/legacy-modes/mode/nginx";
+import { perl } from "@codemirror/legacy-modes/mode/perl";
+import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
+import { properties } from "@codemirror/legacy-modes/mode/properties";
+import { protobuf } from "@codemirror/legacy-modes/mode/protobuf";
+import { r } from "@codemirror/legacy-modes/mode/r";
+import { ruby } from "@codemirror/legacy-modes/mode/ruby";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { swift } from "@codemirror/legacy-modes/mode/swift";
+import { toml } from "@codemirror/legacy-modes/mode/toml";
 
 const props = defineProps({
     content: {
@@ -50,6 +72,10 @@ const props = defineProps({
         default: "",
     },
     extension: {
+        type: String,
+        default: "",
+    },
+    name: {
         type: String,
         default: "",
     },
@@ -100,8 +126,8 @@ watch(
 );
 
 watch(
-    [() => props.content, () => props.extension, host],
-    ([content, extension, container]) => {
+    [() => props.content, () => props.extension, () => props.name, host],
+    ([content, extension, name, container]) => {
         if (!container) {
             return;
         }
@@ -293,7 +319,7 @@ watch(
                                 font: "inherit",
                             },
                         }),
-                        language.of(resolveLanguage(extension)),
+                        language.of(resolveLanguage(extension, name)),
                     ],
                 }),
                 parent: container,
@@ -303,7 +329,7 @@ watch(
 
         if (editor.state.doc.toString() === content) {
             editor.dispatch({
-                effects: language.reconfigure(resolveLanguage(extension)),
+                effects: language.reconfigure(resolveLanguage(extension, name)),
             });
             return;
         }
@@ -315,7 +341,7 @@ watch(
                 to: editor.state.doc.length,
                 insert: content,
             },
-            effects: language.reconfigure(resolveLanguage(extension)),
+            effects: language.reconfigure(resolveLanguage(extension, name)),
         });
         syncingFromProps = false;
     },
@@ -349,16 +375,27 @@ function normalizeEncoding(encoding) {
         : "utf-8";
 }
 
-function resolveLanguage(extension) {
+function resolveLanguage(extension, name) {
+    const normalizedName = (name || "").toLowerCase();
+
+    if (normalizedName === "dockerfile") {
+        return streamLanguage(dockerFile);
+    }
+    if (normalizedName === "cmakelists.txt") {
+        return streamLanguage(cmake);
+    }
+
     switch ((extension || "").toLowerCase()) {
         case ".js":
         case ".jsx":
         case ".mjs":
         case ".cjs":
+            return javascript({ jsx: true });
         case ".ts":
         case ".tsx":
-        case ".vue":
             return javascript({ jsx: true, typescript: true });
+        case ".vue":
+            return vue({ base: html() });
         case ".html":
         case ".htm":
             return html();
@@ -369,11 +406,14 @@ function resolveLanguage(extension) {
             return css();
         case ".json":
         case ".jsonc":
+        case ".map":
             return json();
         case ".md":
         case ".markdown":
+        case ".mdx":
             return markdown();
         case ".py":
+        case ".pyw":
             return python();
         case ".java":
             return java();
@@ -382,17 +422,89 @@ function resolveLanguage(extension) {
         case ".cc":
         case ".cpp":
         case ".cxx":
+        case ".hh":
         case ".hpp":
+        case ".hxx":
             return cpp();
+        case ".cs":
+            return streamLanguage(csharp);
+        case ".kt":
+        case ".kts":
+            return streamLanguage(kotlin);
+        case ".scala":
+        case ".sc":
+            return streamLanguage(scala);
+        case ".dart":
+            return streamLanguage(dart);
+        case ".go":
+            return go();
+        case ".rs":
+            return rust();
+        case ".php":
+        case ".phtml":
+            return php();
+        case ".rb":
+        case ".rake":
+        case ".gemspec":
+            return streamLanguage(ruby);
+        case ".swift":
+            return streamLanguage(swift);
+        case ".lua":
+            return streamLanguage(lua);
+        case ".pl":
+        case ".pm":
+            return streamLanguage(perl);
+        case ".r":
+        case ".rmd":
+            return streamLanguage(r);
+        case ".clj":
+        case ".cljs":
+        case ".cljc":
+        case ".edn":
+            return streamLanguage(clojure);
+        case ".sh":
+        case ".bash":
+        case ".zsh":
+        case ".fish":
+            return streamLanguage(shell);
+        case ".ps1":
+        case ".psm1":
+        case ".psd1":
+            return streamLanguage(powerShell);
         case ".sql":
             return sql();
         case ".xml":
         case ".svg":
         case ".xhtml":
             return xml();
+        case ".yaml":
+        case ".yml":
+            return yaml();
+        case ".toml":
+            return streamLanguage(toml);
+        case ".ini":
+        case ".env":
+        case ".properties":
+        case ".conf":
+            return streamLanguage(properties);
+        case ".dockerfile":
+            return streamLanguage(dockerFile);
+        case ".cmake":
+            return streamLanguage(cmake);
+        case ".proto":
+            return streamLanguage(protobuf);
+        case ".diff":
+        case ".patch":
+            return streamLanguage(diff);
+        case ".nginx":
+            return streamLanguage(nginx);
         default:
             return [];
     }
+}
+
+function streamLanguage(mode) {
+    return StreamLanguage.define(mode);
 }
 </script>
 

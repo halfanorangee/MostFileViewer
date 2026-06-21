@@ -87,6 +87,7 @@
                             class="code-preview"
                             :content="tab.content"
                             :extension="tab.extension"
+                            :name="tab.name"
                             :encoding="tab.encoding"
                             @dirty="handleContentChange(tab.path)"
                             @encoding-change="
