@@ -254,48 +254,6 @@ input {
     color: #6b7280;
 }
 
-.tree-node__row {
-    min-width: max-content;
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border: 0;
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
-}
-
-.tree-node__row:hover {
-    background: #f3f7ff;
-}
-
-.tree-node__row--active {
-    background: #e8f1ff;
-    color: #154ec1;
-}
-
-.tree-node__caret {
-    width: 16px;
-    color: #73839b;
-    flex: 0 0 auto;
-}
-
-.tree-node__icon {
-    flex: 0 0 auto;
-}
-
-.tree-node__name {
-    flex: 0 0 auto;
-    white-space: nowrap;
-}
-
-.tree-node__badge {
-    color: #2563eb;
-    font-size: 12px;
-}
-
 .preview-tabs {
     display: flex;
     flex-direction: column;

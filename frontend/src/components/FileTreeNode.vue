@@ -78,11 +78,12 @@ function handleClick() {
 
 <style scoped>
 .tree-node__row {
+    min-width: max-content;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
     width: 100%;
-    padding: 8px 12px;
+    padding: 2px 4px;
     border: 0;
     background: transparent;
     color: #1f2937;
@@ -106,6 +107,7 @@ function handleClick() {
 }
 
 .tree-node__name {
+    flex: 0 0 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
