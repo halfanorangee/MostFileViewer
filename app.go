@@ -204,12 +204,14 @@ func (a *App) readFile(path string, requestedEncoding string) (*FileContent, err
 		return nil, fmt.Errorf("读取文件失败: %w", err)
 	}
 
-	encoding := detectTextEncoding(data)
+	var encoding string
 	if strings.TrimSpace(requestedEncoding) != "" {
 		encoding, err = normalizeTextEncoding(requestedEncoding)
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		encoding = detectTextEncoding(data)
 	}
 
 	if extension == ".csv" {

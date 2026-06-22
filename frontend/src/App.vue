@@ -110,6 +110,7 @@ let removeResizeListeners = null;
 
 // 自动保存相关
 const autoSaveDebounceTimers = new Map();
+const encodingChangeRequests = new Map();
 let autoSaveIntervalTimer = null;
 const AUTO_SAVE_DEBOUNCE_DELAY = 2500; // 2.5秒防抖
 const AUTO_SAVE_INTERVAL_DELAY = 60000; // 60秒定时保存
@@ -362,6 +363,8 @@ async function openFileNode(node) {
         dirty: false,
         saving: false,
         saveError: "",
+        encodingLoading: false,
+        contentVersion: 0,
         changeVersion: 0,
         savedVersion: 0,
     };
@@ -385,6 +388,8 @@ async function openFileNode(node) {
             dirty: false,
             saving: false,
             saveError: "",
+            encodingLoading: false,
+            contentVersion: isCodePreview ? (tab.contentVersion ?? 0) + 1 : 0,
             changeVersion: 0,
             savedVersion: 0,
             status: "ready",
@@ -457,6 +462,7 @@ async function handleCloseTab(path) {
     }
 
     clearAutoSaveDebounceTimer(path);
+    encodingChangeRequests.delete(path);
     releaseTabPayload(path);
     await nextTick();
 
@@ -517,7 +523,7 @@ async function handleEncodingChange(path, encoding) {
     if (!tab || tab.previewType !== "code" || tab.status !== "ready") {
         return;
     }
-    if (tab.encoding === encoding) {
+    if (tab.encoding === encoding || tab.encodingLoading) {
         return;
     }
     if (tab.dirty) {
@@ -528,25 +534,42 @@ async function handleEncodingChange(path, encoding) {
         }
     }
 
+    const requestToken = Symbol("encoding-change");
+    encodingChangeRequests.set(path, requestToken);
     clearAutoSaveDebounceTimer(path);
-    updateTab(path, { status: "loading", saveError: "" });
+    updateTab(path, { encodingLoading: true, saveError: "" });
     try {
         const content = await App.ReadFileWithEncoding(tab.path, encoding);
+        if (encodingChangeRequests.get(path) !== requestToken) {
+            return;
+        }
+        const currentTab = openTabs.value.find((item) => item.path === path);
+        if (!currentTab) {
+            return;
+        }
         updateTab(path, {
             content: content.content || "",
             encoding: content.encoding || encoding,
             dirty: false,
             saving: false,
             saveError: "",
+            encodingLoading: false,
+            contentVersion: (currentTab.contentVersion ?? 0) + 1,
             changeVersion: 0,
             savedVersion: 0,
-            status: "ready",
         });
     } catch (error) {
+        if (encodingChangeRequests.get(path) !== requestToken) {
+            return;
+        }
         updateTab(path, {
-            status: "ready",
+            encodingLoading: false,
             saveError: normalizeError(error, "切换编码失败"),
         });
+    } finally {
+        if (encodingChangeRequests.get(path) === requestToken) {
+            encodingChangeRequests.delete(path);
+        }
     }
 }
 
@@ -556,7 +579,8 @@ async function handleSaveTab(path = activeTabPath.value) {
         !tab ||
         tab.previewType !== "code" ||
         tab.status !== "ready" ||
-        tab.saving
+        tab.saving ||
+        tab.encodingLoading
     ) {
         return;
     }
@@ -639,14 +663,17 @@ function toggleSidebar() {
 }
 
 function releaseTabPayload(path) {
+    encodingChangeRequests.delete(path);
     updateTab(path, {
         source: null,
         content: "",
         error: "",
+        encodingLoading: false,
     });
 }
 
 function releaseAllTabPayloads() {
+    encodingChangeRequests.clear();
     if (!openTabs.value.length) {
         return;
     }
@@ -656,6 +683,7 @@ function releaseAllTabPayloads() {
         source: null,
         content: "",
         error: "",
+        encodingLoading: false,
     }));
 }
 
@@ -887,5 +915,15 @@ function stopAutoSave() {
     min-height: 0;
     overflow: hidden;
     background-color: #fff;
+}
+
+.pane-card__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 12px;
+    font-size: 16px;
+    border-bottom: 1px solid #e6edf7;
+    font-weight: 600;
 }
 </style>

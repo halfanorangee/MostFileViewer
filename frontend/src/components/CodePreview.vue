@@ -3,10 +3,10 @@
         <div ref="host" class="code-preview-wrapper"></div>
         <div class="code-preview-status">
             <label class="code-preview-encoding">
-                <span>语法：</span>
                 <select
                     :value="selectedSyntax"
                     class="code-preview-encoding-select"
+                    :disabled="encodingLoading || syncingDocument"
                     @change="handleSyntaxChange"
                 >
                     <option
@@ -19,10 +19,10 @@
                 </select>
             </label>
             <label class="code-preview-encoding">
-                <span>编码：</span>
                 <select
                     :value="selectedEncoding"
                     class="code-preview-encoding-select"
+                    :disabled="encodingLoading || syncingDocument"
                     @change="handleEncodingChange"
                 >
                     <option
@@ -87,6 +87,10 @@ const props = defineProps({
         type: String,
         default: "",
     },
+    contentVersion: {
+        type: Number,
+        default: 0,
+    },
     extension: {
         type: String,
         default: "",
@@ -99,50 +103,53 @@ const props = defineProps({
         type: String,
         default: "utf-8",
     },
+    encodingLoading: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const emit = defineEmits(["dirty", "save", "encoding-change"]);
 
 const syntaxOptions = [
-    { label: "自动检测", value: "auto" },
-    { label: "纯文本", value: "text" },
-    { label: "JavaScript / JSX", value: "javascript" },
-    { label: "TypeScript / TSX", value: "typescript" },
-    { label: "Vue", value: "vue" },
-    { label: "HTML", value: "html" },
-    { label: "CSS / SCSS / Less", value: "css" },
-    { label: "JSON", value: "json" },
-    { label: "Markdown", value: "markdown" },
-    { label: "Python", value: "python" },
-    { label: "Java", value: "java" },
     { label: "C / C++", value: "cpp" },
     { label: "C#", value: "csharp" },
-    { label: "Kotlin", value: "kotlin" },
-    { label: "Scala", value: "scala" },
-    { label: "Dart", value: "dart" },
-    { label: "Go", value: "go" },
-    { label: "Rust", value: "rust" },
-    { label: "PHP", value: "php" },
-    { label: "Ruby", value: "ruby" },
-    { label: "Swift", value: "swift" },
-    { label: "Lua", value: "lua" },
-    { label: "Perl", value: "perl" },
-    { label: "R", value: "r" },
     { label: "Clojure", value: "clojure" },
-    { label: "Shell / Bash", value: "shell" },
+    { label: "CMake", value: "cmake" },
+    { label: "CSS / SCSS / Less", value: "css" },
+    { label: "Dart", value: "dart" },
+    { label: "Diff / Patch", value: "diff" },
+    { label: "Dockerfile", value: "dockerfile" },
+    { label: "Go", value: "go" },
+    { label: "HTML", value: "html" },
+    { label: "Java", value: "java" },
+    { label: "JavaScript / JSX", value: "javascript" },
+    { label: "JSON", value: "json" },
+    { label: "Kotlin", value: "kotlin" },
+    { label: "Lua", value: "lua" },
+    { label: "Markdown", value: "markdown" },
+    { label: "Nginx", value: "nginx" },
+    { label: "Perl", value: "perl" },
+    { label: "PHP", value: "php" },
     { label: "PowerShell", value: "powershell" },
+    { label: "Properties / INI / ENV", value: "properties" },
+    { label: "Protocol Buffers", value: "protobuf" },
+    { label: "Python", value: "python" },
+    { label: "R", value: "r" },
+    { label: "Ruby", value: "ruby" },
+    { label: "Rust", value: "rust" },
+    { label: "Scala", value: "scala" },
+    { label: "Shell / Bash", value: "shell" },
     { label: "SQL", value: "sql" },
+    { label: "Swift", value: "swift" },
+    { label: "TOML", value: "toml" },
+    { label: "TXT", value: "text" },
+    { label: "TypeScript / TSX", value: "typescript" },
+    { label: "Vue", value: "vue" },
     { label: "XML / SVG", value: "xml" },
     { label: "YAML", value: "yaml" },
-    { label: "TOML", value: "toml" },
-    { label: "Properties / INI / ENV", value: "properties" },
-    { label: "Dockerfile", value: "dockerfile" },
-    { label: "CMake", value: "cmake" },
-    { label: "Protocol Buffers", value: "protobuf" },
-    { label: "Diff / Patch", value: "diff" },
-    { label: "Nginx", value: "nginx" },
 ];
-const selectedSyntax = ref("auto");
+const selectedSyntax = ref(detectSyntaxKey(props.extension, props.name));
 
 const encodingOptions = [
     { label: "UTF-8", value: "utf-8" },
@@ -154,9 +161,11 @@ const encodingOptions = [
     { label: "ISO-8859-1", value: "iso-8859-1" },
 ];
 const selectedEncoding = ref(normalizeEncoding(props.encoding));
+const syncingDocument = ref(false);
 
 const host = ref(null);
 const language = new Compartment();
+const editable = new Compartment();
 const chineseSearchPhrases = CMState.phrases.of({
     "Control character": "控制字符",
     Search: "搜索",
@@ -173,6 +182,13 @@ const chineseSearchPhrases = CMState.phrases.of({
 });
 let editor = null;
 let syncingFromProps = false;
+let documentSyncToken = 0;
+let lastContentVersion = null;
+let lastExtension = "";
+let lastName = "";
+
+const LARGE_CONTENT_CHARS = 512 * 1024;
+const CONTENT_CHUNK_CHARS = 256 * 1024;
 
 watch(
     () => props.encoding,
@@ -182,13 +198,22 @@ watch(
     { immediate: true },
 );
 
-watch([() => props.extension, () => props.name], () => {
-    selectedSyntax.value = "auto";
+watch([() => props.extension, () => props.name], ([extension, name]) => {
+    selectedSyntax.value = detectSyntaxKey(extension, name);
 });
 
 watch(
-    [() => props.content, () => props.extension, () => props.name, host],
-    ([content, extension, name, container]) => {
+    () => props.encodingLoading,
+    (loading) => {
+        editor?.dispatch({
+            effects: editable.reconfigure(EditorView.editable.of(!loading)),
+        });
+    },
+);
+
+watch(
+    [() => props.contentVersion, () => props.extension, () => props.name, host],
+    ([contentVersion, extension, name, container]) => {
         if (!container) {
             return;
         }
@@ -196,7 +221,7 @@ watch(
         if (!editor) {
             editor = new EditorView({
                 state: EditorState.create({
-                    doc: content,
+                    doc: props.content,
                     extensions: [
                         basicSetup,
                         chineseSearchPhrases,
@@ -214,6 +239,7 @@ watch(
                             },
                         ]),
                         EditorView.lineWrapping,
+                        editable.of(EditorView.editable.of(!props.encodingLoading)),
                         EditorView.updateListener.of((update) => {
                             if (!update.docChanged || syncingFromProps) {
                                 return;
@@ -385,40 +411,136 @@ watch(
                 }),
                 parent: container,
             });
+            lastContentVersion = contentVersion;
+            lastExtension = extension;
+            lastName = name;
             return;
         }
 
-        if (editor.state.doc.toString() === content) {
+        const contentChanged = contentVersion !== lastContentVersion;
+        const languageChanged = extension !== lastExtension || name !== lastName;
+        lastContentVersion = contentVersion;
+        lastExtension = extension;
+        lastName = name;
+
+        if (contentChanged) {
+            void replaceEditorContent(props.content, extension, name);
+            return;
+        }
+
+        if (languageChanged) {
+            documentSyncToken += 1;
             editor.dispatch({
                 effects: language.reconfigure(resolveSelectedLanguage(extension, name)),
             });
-            return;
         }
-
-        syncingFromProps = true;
-        editor.dispatch({
-            changes: {
-                from: 0,
-                to: editor.state.doc.length,
-                insert: content,
-            },
-            effects: language.reconfigure(resolveSelectedLanguage(extension, name)),
-        });
-        syncingFromProps = false;
     },
     { immediate: true, flush: "post" },
 );
 
 onBeforeUnmount(() => {
+    documentSyncToken += 1;
     editor?.destroy();
     editor = null;
 });
+
+async function replaceEditorContent(content, extension, name) {
+    const token = ++documentSyncToken;
+    const languageEffect = language.reconfigure(
+        resolveSelectedLanguage(extension, name),
+    );
+
+    syncingFromProps = true;
+    syncingDocument.value = content.length > LARGE_CONTENT_CHARS;
+    try {
+        if (!editor) {
+            return;
+        }
+
+        editor.dispatch({
+            effects: editable.reconfigure(EditorView.editable.of(false)),
+        });
+
+        if (content.length <= LARGE_CONTENT_CHARS) {
+            editor.dispatch({
+                changes: {
+                    from: 0,
+                    to: editor.state.doc.length,
+                    insert: content,
+                },
+                effects: languageEffect,
+            });
+            return;
+        }
+
+        editor.dispatch({
+            changes: {
+                from: 0,
+                to: editor.state.doc.length,
+                insert: "",
+            },
+            effects: languageEffect,
+        });
+
+        for (let offset = 0; offset < content.length; ) {
+            if (token !== documentSyncToken || !editor) {
+                return;
+            }
+
+            await nextFrame();
+            let nextOffset = getSafeChunkEnd(
+                content,
+                offset + CONTENT_CHUNK_CHARS,
+            );
+            if (nextOffset <= offset) {
+                nextOffset = Math.min(content.length, offset + CONTENT_CHUNK_CHARS);
+            }
+            editor.dispatch({
+                changes: {
+                    from: editor.state.doc.length,
+                    insert: content.slice(offset, nextOffset),
+                },
+            });
+            offset = nextOffset;
+        }
+    } finally {
+        if (token === documentSyncToken) {
+            syncingFromProps = false;
+            syncingDocument.value = false;
+            editor?.dispatch({
+                effects: editable.reconfigure(
+                    EditorView.editable.of(!props.encodingLoading),
+                ),
+            });
+        }
+    }
+}
+
+function getSafeChunkEnd(content, end) {
+    if (end >= content.length) {
+        return content.length;
+    }
+
+    const previous = content.charCodeAt(end - 1);
+    if (previous >= 0xd800 && previous <= 0xdbff) {
+        return Math.max(end - 1, 0);
+    }
+    return end;
+}
+
+function nextFrame() {
+    return new Promise((resolve) => requestAnimationFrame(resolve));
+}
 
 function getContent() {
     return editor?.state.doc.toString() ?? props.content;
 }
 
 function handleEncodingChange(event) {
+    if (props.encodingLoading || syncingDocument.value) {
+        return;
+    }
+
     const previousEncoding = selectedEncoding.value;
     const encoding = normalizeEncoding(event.target.value);
     emit("encoding-change", encoding);
@@ -426,7 +548,12 @@ function handleEncodingChange(event) {
 }
 
 function handleSyntaxChange(event) {
+    if (props.encodingLoading || syncingDocument.value) {
+        return;
+    }
+
     selectedSyntax.value = event.target.value;
+    documentSyncToken += 1;
     editor?.dispatch({
         effects: language.reconfigure(
             resolveSelectedLanguage(props.extension, props.name),
@@ -445,22 +572,18 @@ function normalizeEncoding(encoding) {
         : "utf-8";
 }
 
-function resolveSelectedLanguage(extension, name) {
-    if (selectedSyntax.value !== "auto") {
-        return resolveLanguageBySyntaxKey(selectedSyntax.value);
-    }
-
-    return resolveLanguage(extension, name);
+function resolveSelectedLanguage() {
+    return resolveLanguageBySyntaxKey(selectedSyntax.value);
 }
 
-function resolveLanguage(extension, name) {
+function detectSyntaxKey(extension, name) {
     const normalizedName = (name || "").toLowerCase();
 
     if (normalizedName === "dockerfile") {
-        return streamLanguage(dockerFile);
+        return "dockerfile";
     }
     if (normalizedName === "cmakelists.txt") {
-        return streamLanguage(cmake);
+        return "cmake";
     }
 
     switch ((extension || "").toLowerCase()) {
@@ -468,33 +591,33 @@ function resolveLanguage(extension, name) {
         case ".jsx":
         case ".mjs":
         case ".cjs":
-            return javascript({ jsx: true });
+            return "javascript";
         case ".ts":
         case ".tsx":
-            return javascript({ jsx: true, typescript: true });
+            return "typescript";
         case ".vue":
-            return vue({ base: html() });
+            return "vue";
         case ".html":
         case ".htm":
-            return html();
+            return "html";
         case ".css":
         case ".scss":
         case ".sass":
         case ".less":
-            return css();
+            return "css";
         case ".json":
         case ".jsonc":
         case ".map":
-            return json();
+            return "json";
         case ".md":
         case ".markdown":
         case ".mdx":
-            return markdown();
+            return "markdown";
         case ".py":
         case ".pyw":
-            return python();
+            return "python";
         case ".java":
-            return java();
+            return "java";
         case ".c":
         case ".h":
         case ".cc":
@@ -503,81 +626,81 @@ function resolveLanguage(extension, name) {
         case ".hh":
         case ".hpp":
         case ".hxx":
-            return cpp();
+            return "cpp";
         case ".cs":
-            return streamLanguage(csharp);
+            return "csharp";
         case ".kt":
         case ".kts":
-            return streamLanguage(kotlin);
+            return "kotlin";
         case ".scala":
         case ".sc":
-            return streamLanguage(scala);
+            return "scala";
         case ".dart":
-            return streamLanguage(dart);
+            return "dart";
         case ".go":
-            return go();
+            return "go";
         case ".rs":
-            return rust();
+            return "rust";
         case ".php":
         case ".phtml":
-            return php();
+            return "php";
         case ".rb":
         case ".rake":
         case ".gemspec":
-            return streamLanguage(ruby);
+            return "ruby";
         case ".swift":
-            return streamLanguage(swift);
+            return "swift";
         case ".lua":
-            return streamLanguage(lua);
+            return "lua";
         case ".pl":
         case ".pm":
-            return streamLanguage(perl);
+            return "perl";
         case ".r":
         case ".rmd":
-            return streamLanguage(r);
+            return "r";
         case ".clj":
         case ".cljs":
         case ".cljc":
         case ".edn":
-            return streamLanguage(clojure);
+            return "clojure";
         case ".sh":
         case ".bash":
         case ".zsh":
         case ".fish":
-            return streamLanguage(shell);
+            return "shell";
         case ".ps1":
         case ".psm1":
         case ".psd1":
-            return streamLanguage(powerShell);
+            return "powershell";
         case ".sql":
-            return sql();
+            return "sql";
         case ".xml":
         case ".svg":
         case ".xhtml":
-            return xml();
+            return "xml";
         case ".yaml":
         case ".yml":
-            return yaml();
+            return "yaml";
         case ".toml":
-            return streamLanguage(toml);
+            return "toml";
         case ".ini":
         case ".env":
         case ".properties":
         case ".conf":
-            return streamLanguage(properties);
+            return "properties";
         case ".dockerfile":
-            return streamLanguage(dockerFile);
+            return "dockerfile";
         case ".cmake":
-            return streamLanguage(cmake);
+            return "cmake";
         case ".proto":
-            return streamLanguage(protobuf);
+            return "protobuf";
         case ".diff":
         case ".patch":
-            return streamLanguage(diff);
+            return "diff";
         case ".nginx":
-            return streamLanguage(nginx);
+            return "nginx";
         default:
-            return [];
+            return "text";
     }
 }
 
@@ -668,20 +791,20 @@ function streamLanguage(mode) {
     flex: 1;
     min-width: 0;
     min-height: 0;
-    height: calc(100% - 28px);
+    height: calc(100% - 30px);
     overflow: hidden;
     background: #fff;
 }
 .code-preview-status {
     background: #f1f5f9;
-    height: 28px;
-    line-height: 28px;
+    height: 30px;
+    line-height: 30px;
     padding: 0 12px;
     font-size: 13px;
     color: #64748b;
     display: flex;
     align-items: center;
-    column-gap: 12px;
+    column-gap: 20px;
 }
 
 .code-preview-encoding {
@@ -692,16 +815,26 @@ function streamLanguage(mode) {
 
 .code-preview-encoding-select {
     height: 20px;
-    padding: 0 20px 0 6px;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
-    background: #ffffff;
+    padding: 0 2px;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    background: transparent;
     color: #334155;
     font-size: 12px;
     outline: none;
+    appearance: none;
+    cursor: pointer;
 }
 
 .code-preview-encoding-select:focus {
+    padding: 0 4px;
     border-color: #2563eb;
+    background: #ffffff;
+    appearance: auto;
+}
+
+.code-preview-encoding-select:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
 }
 </style>

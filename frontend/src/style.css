@@ -232,17 +232,8 @@ input {
     min-height: 0;
 }
 
-.pane-card__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 18px;
-    border-bottom: 1px solid #e6edf7;
-    font-weight: 600;
-}
-
 .file-tree {
-    padding: 12px 0;
+    padding: 0;
     overflow: auto;
     flex: 1 1 auto;
     min-width: 0;
