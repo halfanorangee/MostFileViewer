@@ -259,6 +259,9 @@ watch(
                             },
                             ".cm-content": {
                                 padding: "16px 0",
+                                position: "relative",
+                                zIndex: 2,
+                                backgroundColor: "transparent",
                             },
                             ".cm-gutters": {
                                 backgroundColor: "#f8fafc",
@@ -271,10 +274,17 @@ watch(
                             ".cm-activeLineGutter": {
                                 backgroundColor: "#f1f5f9",
                             },
-                            ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection":
+                            ".cm-selectionLayer": {
+                                zIndex: "3 !important",
+                                pointerEvents: "none",
+                            },
+                            ".cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground":
                                 {
-                                    backgroundColor: "rgba(37, 99, 235, 0.18)",
+                                    background: "rgba(37, 99, 235, 0.28) !important",
                                 },
+                            ".cm-line::selection, .cm-line ::selection": {
+                                backgroundColor: "rgba(37, 99, 235, 0.22)",
+                            },
                             ".cm-cursor, .cm-dropCursor": {
                                 borderLeftColor: "#2563eb",
                             },
