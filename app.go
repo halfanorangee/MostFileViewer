@@ -274,17 +274,21 @@ func (a *App) SaveFile(path string, content string, encoding string) error {
 		return err
 	}
 
-	existingData, err := os.ReadFile(cleanPath)
-	if err != nil {
-		return fmt.Errorf("读取原文件失败: %w", err)
-	}
-
 	encoding, err = normalizeTextEncoding(encoding)
 	if err != nil {
 		return err
 	}
 
-	encodedContent, err := encodeText(content, encoding, existingData)
+	// 仅 UTF-8 编码需要回看 BOM；其他编码不依赖原文件内容，无需读取
+	var existingHeader []byte
+	if encoding == "utf-8" {
+		existingHeader, err = readFileHeader(cleanPath, 3)
+		if err != nil {
+			return fmt.Errorf("读取原文件失败: %w", err)
+		}
+	}
+
+	encodedContent, err := encodeText(content, encoding, existingHeader)
 	if err != nil {
 		return fmt.Errorf("编码文件内容失败: %w", err)
 	}
@@ -294,6 +298,26 @@ func (a *App) SaveFile(path string, content string, encoding string) error {
 	}
 
 	return nil
+}
+
+// readFileHeader 只读取文件前 n 个字节，避免为了识别 BOM 而把整个文件加载到内存中。
+// 文件比 n 短时返回实际读取到的部分（不视为错误）。
+func readFileHeader(path string, n int) ([]byte, error) {
+	if n <= 0 {
+		return nil, nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	buf := make([]byte, n)
+	read, err := io.ReadFull(file, buf)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil, err
+	}
+	return buf[:read], nil
 }
 
 func (a *App) ShowInFileManager(path string) error {
