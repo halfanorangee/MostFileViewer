@@ -5,9 +5,11 @@
             class="tree-node__row"
             :class="{
                 'tree-node__row--active': activePath === node.path,
+                'tree-node__row--context-active': contextActivePath === node.path,
             }"
             :style="{ paddingLeft: `${depth * 16 + 12}px` }"
             @click="handleClick"
+            @contextmenu.prevent.stop="handleContextMenu"
         >
             <span class="tree-node__caret">{{ caret }}</span>
             <FileIcon
@@ -26,8 +28,10 @@
                 :node="child"
                 :depth="depth + 1"
                 :active-path="activePath"
+                :context-active-path="contextActivePath"
                 @open-file="$emit('open-file', $event)"
                 @load-folder="$emit('load-folder', $event)"
+                @node-context-menu="$emit('node-context-menu', $event)"
             />
         </div>
     </div>
@@ -50,9 +54,13 @@ const props = defineProps({
         type: String,
         default: "",
     },
+    contextActivePath: {
+        type: String,
+        default: "",
+    },
 });
 
-const emit = defineEmits(["open-file", "load-folder"]);
+const emit = defineEmits(["open-file", "load-folder", "node-context-menu"]);
 const isFolder = computed(() => props.node.type === "folder");
 const expanded = ref(false);
 
@@ -73,6 +81,14 @@ function handleClick() {
     }
 
     emit("open-file", props.node);
+}
+
+function handleContextMenu(event) {
+    emit("node-context-menu", {
+        node: props.node,
+        x: event.clientX,
+        y: event.clientY,
+    });
 }
 </script>
 
@@ -95,7 +111,8 @@ function handleClick() {
     background: #f5f8fc;
 }
 
-.tree-node__row--active {
+.tree-node__row--active,
+.tree-node__row--context-active {
     background: #eaf2ff;
     color: #0f172a;
 }

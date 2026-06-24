@@ -53,6 +53,8 @@ type FileChunk struct {
 	Size   int    `json:"size"`
 }
 
+var revealPathInFileManager = openInFileManager
+
 func NewApp() *App {
 	return &App{
 		allowedFiles: make(map[string]struct{}),
@@ -294,6 +296,18 @@ func (a *App) SaveFile(path string, content string, encoding string) error {
 	return nil
 }
 
+func (a *App) ShowInFileManager(path string) error {
+	cleanPath, info, err := a.validateFileManagerPath(path)
+	if err != nil {
+		return err
+	}
+
+	if err := revealPathInFileManager(cleanPath, info.IsDir()); err != nil {
+		return fmt.Errorf("在文件管理器中显示失败: %w", err)
+	}
+	return nil
+}
+
 func (a *App) validateFilePath(path string) (string, os.FileInfo, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", nil, errors.New("文件路径不能为空")
@@ -316,6 +330,35 @@ func (a *App) validateFilePath(path string) (string, os.FileInfo, error) {
 	}
 	if info.IsDir() {
 		return "", nil, errors.New("当前路径是文件夹，不能直接预览")
+	}
+
+	return cleanPath, info, nil
+}
+
+func (a *App) validateFileManagerPath(path string) (string, os.FileInfo, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", nil, errors.New("文件路径不能为空")
+	}
+
+	cleanPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", nil, fmt.Errorf("解析文件路径失败: %w", err)
+	}
+
+	info, err := os.Stat(cleanPath)
+	if err != nil {
+		return "", nil, fmt.Errorf("文件不存在或无法访问: %w", err)
+	}
+
+	if strings.TrimSpace(a.currentRoot) == "" {
+		if info.IsDir() {
+			a.currentRoot = cleanPath
+		} else {
+			a.currentRoot = filepath.Dir(cleanPath)
+		}
+	}
+	if !isPathWithinRoot(a.currentRoot, cleanPath) && !a.isAllowedFile(cleanPath) {
+		return "", nil, errors.New("当前文件不在已打开文件夹范围内")
 	}
 
 	return cleanPath, info, nil

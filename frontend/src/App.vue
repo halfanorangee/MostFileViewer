@@ -59,6 +59,7 @@
                             :active-path="activeTabPath"
                             @open-file="handleOpenFile"
                             @load-folder="handleLoadFolderChildren"
+                            @show-in-file-manager="handleShowInFileManager"
                         />
                     </div>
                 </aside>
@@ -439,6 +440,18 @@ async function handleOpenFile(node) {
     }
 
     await openFileNode(node);
+}
+
+async function handleShowInFileManager(node) {
+    if (!node?.path) {
+        return;
+    }
+
+    try {
+        await App.ShowInFileManager(node.path);
+    } catch (error) {
+        // silently ignore
+    }
 }
 
 function handleChangeTab(path) {
