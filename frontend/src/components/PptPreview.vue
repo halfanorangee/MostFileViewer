@@ -2,7 +2,9 @@
     <div class="ppt-preview">
         <div class="ppt-preview__toolbar">
             <span>{{ statusText }}</span>
-            <span class="ppt-preview__hint">Ctrl + 滚轮缩放</span>
+            <span class="ppt-preview__hint">
+                Ctrl + 滚轮缩放
+            </span>
         </div>
         <div ref="stage" class="ppt-preview__stage" @wheel="handleWheel">
             <div class="ppt-preview__zoom-frame" :style="zoomFrameStyle">
@@ -17,7 +19,14 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import {
+    computed,
+    nextTick,
+    onBeforeUnmount,
+    onMounted,
+    ref,
+    watch,
+} from "vue";
 
 const props = defineProps({
     src: {
@@ -30,27 +39,41 @@ const emit = defineEmits(["error", "rendered"]);
 
 const BASE_WIDTH = 960;
 const ZOOM_STEP = 0.1;
-const MIN_ZOOM = 0.5;
+const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2.5;
+const STAGE_HORIZONTAL_PADDING = 48;
 
 const stage = ref(null);
 const host = ref(null);
 const loading = ref(false);
 const slideCount = ref(0);
-const zoom = ref(1);
+const fitScale = ref(1);
+const userScale = ref(1);
 const contentSize = ref({ width: 0, height: 0 });
 
 let previewer = null;
 let renderSequence = 0;
+let resizeObserver = null;
+let fitFrame = 0;
+
+const zoom = computed(() =>
+    clamp(
+        Number((fitScale.value * userScale.value).toFixed(4)),
+        MIN_ZOOM,
+        MAX_ZOOM,
+    ),
+);
 
 const statusText = computed(() => {
     if (loading.value) {
-        return "正在解析 PPT...";
+        return "\u6b63\u5728\u89e3\u6790 PPT...";
     }
     if (slideCount.value > 0) {
-        return `共 ${slideCount.value} 页 · ${Math.round(zoom.value * 100)}%`;
+        return `\u5171 ${slideCount.value} \u9875 \u00b7 ${Math.round(
+            zoom.value * 100,
+        )}%`;
     }
-    return "PPT 预览";
+    return "PPT \u9884\u89c8";
 });
 
 const zoomFrameStyle = computed(() => {
@@ -73,14 +96,90 @@ function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
 }
 
-function getPreviewWidth() {
+function getViewportCenterSnapshot() {
     const container = stage.value;
     if (!container) {
-        return BASE_WIDTH;
+        return null;
     }
 
-    const availableWidth = Math.max(container.clientWidth - 48, 320);
-    return Math.round(availableWidth);
+    return {
+        centerX: container.scrollLeft + container.clientWidth / 2,
+        centerY: container.scrollTop + container.clientHeight / 2,
+        scrollWidth: container.scrollWidth,
+        scrollHeight: container.scrollHeight,
+    };
+}
+
+function restoreViewportCenter(snapshot) {
+    const container = stage.value;
+    if (!container || !snapshot) {
+        return;
+    }
+
+    const widthRatio = snapshot.scrollWidth
+        ? container.scrollWidth / snapshot.scrollWidth
+        : 1;
+    const heightRatio = snapshot.scrollHeight
+        ? container.scrollHeight / snapshot.scrollHeight
+        : 1;
+
+    container.scrollLeft =
+        snapshot.centerX * widthRatio - container.clientWidth / 2;
+    container.scrollTop =
+        snapshot.centerY * heightRatio - container.clientHeight / 2;
+}
+
+function centerViewport() {
+    const container = stage.value;
+    if (!container) {
+        return;
+    }
+
+    container.scrollLeft = Math.max(
+        0,
+        (container.scrollWidth - container.clientWidth) / 2,
+    );
+}
+
+function updateFitScale({ resetUserScale = false, center = false } = {}) {
+    const container = stage.value;
+    const width = contentSize.value.width;
+
+    if (!container || !width || !container.clientWidth) {
+        return;
+    }
+
+    const snapshot = center ? null : getViewportCenterSnapshot();
+    const availableWidth = Math.max(
+        container.clientWidth - STAGE_HORIZONTAL_PADDING,
+        1,
+    );
+    const nextFitScale = clamp(availableWidth / width, MIN_ZOOM, 1);
+
+    if (resetUserScale) {
+        userScale.value = 1;
+    }
+
+    fitScale.value = Number(nextFitScale.toFixed(4));
+
+    void nextTick(() => {
+        if (center) {
+            centerViewport();
+        } else {
+            restoreViewportCenter(snapshot);
+        }
+    });
+}
+
+function queueFitScale(options) {
+    if (fitFrame) {
+        cancelAnimationFrame(fitFrame);
+    }
+
+    fitFrame = requestAnimationFrame(() => {
+        fitFrame = 0;
+        updateFitScale(options);
+    });
 }
 
 function updateContentSize() {
@@ -102,7 +201,7 @@ function createPreviewer(container) {
 
     return import("pptx-preview").then(({ init }) =>
         init(container, {
-            width: getPreviewWidth(),
+            width: BASE_WIDTH,
             mode: "list",
         }),
     );
@@ -116,15 +215,29 @@ function handleWheel(event) {
     event.preventDefault();
 
     const direction = event.deltaY < 0 ? 1 : -1;
+    const currentZoom = zoom.value;
     const nextZoom = clamp(
-        Number((zoom.value + direction * ZOOM_STEP).toFixed(2)),
+        currentZoom + direction * ZOOM_STEP,
         MIN_ZOOM,
         MAX_ZOOM,
     );
 
-    if (nextZoom !== zoom.value) {
-        zoom.value = nextZoom;
+    if (nextZoom !== currentZoom && fitScale.value) {
+        const snapshot = getViewportCenterSnapshot();
+        userScale.value = Number((nextZoom / fitScale.value).toFixed(4));
+        void nextTick(() => restoreViewportCenter(snapshot));
     }
+}
+
+function observeStageSize() {
+    if (!stage.value || resizeObserver) {
+        return;
+    }
+
+    resizeObserver = new ResizeObserver(() =>
+        queueFitScale({ resetUserScale: false }),
+    );
+    resizeObserver.observe(stage.value);
 }
 
 async function renderSource(source) {
@@ -140,6 +253,8 @@ async function renderSource(source) {
     container.replaceChildren();
     contentSize.value = { width: 0, height: 0 };
     slideCount.value = 0;
+    fitScale.value = 1;
+    userScale.value = 1;
 
     if (!source) {
         loading.value = false;
@@ -168,6 +283,7 @@ async function renderSource(source) {
             pptx?.slides?.length ?? nextPreviewer.slideCount ?? 0;
         await nextTick();
         updateContentSize();
+        updateFitScale({ resetUserScale: true, center: true });
         emit("rendered");
     } catch (error) {
         if (currentRender !== renderSequence) {
@@ -190,14 +306,28 @@ watch(
             return;
         }
 
-        zoom.value = 1;
+        fitScale.value = 1;
+        userScale.value = 1;
         void renderSource(nextSource);
     },
     { immediate: true, flush: "post" },
 );
 
+onMounted(() => {
+    observeStageSize();
+});
+
 onBeforeUnmount(() => {
     renderSequence += 1;
+
+    if (fitFrame) {
+        cancelAnimationFrame(fitFrame);
+        fitFrame = 0;
+    }
+
+    resizeObserver?.disconnect();
+    resizeObserver = null;
+
     previewer?.destroy?.();
     previewer = null;
     host.value?.replaceChildren();
