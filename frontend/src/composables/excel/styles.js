@@ -133,8 +133,18 @@ export function applyBorderStyle(style, border) {
 function borderToCss(border) {
   const width = getBorderWidth(border.style);
   const lineStyle = getBorderLineStyle(border.style);
-  const color = excelColorToCss(border.color) ?? "#1f2937";
+  const color = excelColorToCss(border.color) ?? getDefaultBorderColor();
   return `${width}px ${lineStyle} ${color}`;
+}
+
+function getDefaultBorderColor() {
+  if (typeof document !== "undefined") {
+    const value = getComputedStyle(document.documentElement)
+      .getPropertyValue("--excel-border-default")
+      .trim();
+    if (value) return value;
+  }
+  return "#1f2937";
 }
 
 function getBorderWidth(borderStyle) {

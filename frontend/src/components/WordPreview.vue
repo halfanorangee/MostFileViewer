@@ -156,20 +156,13 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .word-preview {
-    --word-preview-background:
-        radial-gradient(
-            circle at top,
-            rgba(255, 255, 255, 0.72),
-            transparent 32%
-        ),
-        #edf2f7;
     flex: 1;
     min-width: 0;
     min-height: 0;
     height: 100%;
     overflow: auto;
-    background: var(--word-preview-background);
-    color: #111827;
+    background: var(--bg-word-preview);
+    color: var(--text-heading);
 }
 
 .word-preview :deep(.docx-wrapper) {
@@ -177,13 +170,13 @@ onBeforeUnmount(() => {
     min-width: 100%;
     min-height: 100%;
     padding: 28px;
-    background: var(--word-preview-background);
+    background: var(--bg-word-preview);
 }
 
 .word-preview :deep(.docx-wrapper > section.docx) {
     margin-right: auto !important;
     margin-left: auto !important;
-    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+    box-shadow: var(--shadow-page);
     zoom: var(--docx-page-scale);
 }
 

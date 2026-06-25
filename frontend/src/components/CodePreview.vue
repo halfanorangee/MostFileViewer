@@ -250,8 +250,8 @@ watch(
                             "&": {
                                 height: "100%",
                                 fontSize: "13px",
-                                backgroundColor: "#ffffff",
-                                color: "#1f2937",
+                                backgroundColor: "var(--cm-bg)",
+                                color: "var(--cm-text)",
                             },
                             ".cm-scroller": {
                                 fontFamily:
@@ -264,15 +264,15 @@ watch(
                                 backgroundColor: "transparent",
                             },
                             ".cm-gutters": {
-                                backgroundColor: "#f8fafc",
-                                color: "#94a3b8",
-                                borderRight: "1px solid #e2e8f0",
+                                backgroundColor: "var(--cm-gutter-bg)",
+                                color: "var(--cm-gutter-text)",
+                                borderRight: "1px solid var(--cm-gutter-border)",
                             },
                             ".cm-activeLine": {
-                                backgroundColor: "#f8fbff",
+                                backgroundColor: "var(--cm-active-line-bg)",
                             },
                             ".cm-activeLineGutter": {
-                                backgroundColor: "#f1f5f9",
+                                backgroundColor: "var(--cm-active-line-gutter-bg)",
                             },
                             ".cm-selectionLayer": {
                                 zIndex: "3 !important",
@@ -280,30 +280,30 @@ watch(
                             },
                             ".cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground":
                                 {
-                                    background: "rgba(37, 99, 235, 0.28) !important",
+                                    background: "var(--cm-selection-bg) !important",
                                 },
                             ".cm-line::selection, .cm-line ::selection": {
-                                backgroundColor: "rgba(37, 99, 235, 0.22)",
+                                backgroundColor: "var(--cm-selection-line-bg)",
                             },
                             ".cm-cursor, .cm-dropCursor": {
-                                borderLeftColor: "#2563eb",
+                                borderLeftColor: "var(--cm-cursor-color)",
                             },
                             ".cm-searchMatch": {
-                                backgroundColor: "#fef3c7",
-                                border: "1px solid #f59e0b",
+                                backgroundColor: "var(--cm-search-match-bg)",
+                                border: "1px solid var(--cm-search-match-border)",
                                 borderRadius: "4px",
                             },
                             ".cm-searchMatch.cm-searchMatch-selected": {
-                                backgroundColor: "#dbeafe",
-                                borderColor: "#2563eb",
+                                backgroundColor: "var(--cm-search-match-selected-bg)",
+                                borderColor: "var(--cm-search-match-selected-border)",
                             },
                             ".cm-selectionMatch": {
-                                backgroundColor: "rgba(59, 130, 246, 0.12)",
+                                backgroundColor: "var(--cm-selection-match-bg)",
                             },
                             ".cm-panels": {
-                                backgroundColor: "#f9fbff",
-                                color: "#334155",
-                                borderBottom: "1px solid #e6edf7",
+                                backgroundColor: "var(--cm-panels-bg)",
+                                color: "var(--cm-panels-text)",
+                                borderBottom: "1px solid var(--cm-panels-border)",
                             },
                             ".cm-panels-top": {
                                 borderTopLeftRadius: "14px",
@@ -325,7 +325,7 @@ watch(
                                 display: "inline-flex",
                                 alignItems: "center",
                                 gap: "6px",
-                                color: "#64748b",
+                                color: "var(--cm-search-label-text)",
                                 fontSize: "13px",
                                 verticalAlign: "middle",
                             },
@@ -334,9 +334,9 @@ watch(
                                 height: "27px",
                                 padding: "0 8px",
                                 borderRadius: "4px",
-                                border: "1px solid #d7deea",
-                                backgroundColor: "#ffffff",
-                                color: "#1f2937",
+                                border: "1px solid var(--cm-search-input-border)",
+                                backgroundColor: "var(--cm-search-input-bg)",
+                                color: "var(--cm-search-input-text)",
                                 outline: "none",
                             },
                             ".cm-search input[type='checkbox']": {
@@ -347,23 +347,23 @@ watch(
                                 margin: 0,
                                 padding: 0,
                                 borderRadius: "4px",
-                                border: "1px solid #c5d2e6",
-                                backgroundColor: "#ffffff",
+                                border: "1px solid var(--cm-search-checkbox-border)",
+                                backgroundColor: "var(--cm-search-checkbox-bg)",
                                 position: "relative",
                                 cursor: "pointer",
                                 flexShrink: 0,
                             },
                             ".cm-search input[type='checkbox']:hover": {
-                                borderColor: "#94a3b8",
-                                backgroundColor: "#f8fbff",
+                                borderColor: "var(--cm-search-checkbox-hover-border)",
+                                backgroundColor: "var(--cm-search-checkbox-hover-bg)",
                             },
                             ".cm-search input[type='checkbox']:focus": {
-                                borderColor: "#2563eb",
-                                boxShadow: "0 0 0 2px rgba(37, 99, 235, 0.12)",
+                                borderColor: "var(--accent-primary)",
+                                boxShadow: "0 0 0 2px var(--cm-search-checkbox-focus-ring)",
                             },
                             ".cm-search input[type='checkbox']:checked": {
-                                backgroundColor: "#2563eb",
-                                borderColor: "#2563eb",
+                                backgroundColor: "var(--cm-search-checkbox-checked-bg)",
+                                borderColor: "var(--cm-search-checkbox-checked-border)",
                             },
                             ".cm-search input[type='checkbox']:checked::after":
                                 {
@@ -373,30 +373,30 @@ watch(
                                     top: "1px",
                                     width: "4px",
                                     height: "8px",
-                                    border: "solid #ffffff",
+                                    border: "solid var(--cm-search-checkbox-check-color)",
                                     borderWidth: "0 2px 2px 0",
                                     transform: "rotate(45deg)",
                                 },
                             ".cm-search input:focus": {
-                                borderColor: "#2563eb",
+                                borderColor: "var(--accent-primary)",
                             },
                             ".cm-search button": {
                                 fontSize: "13px",
                                 height: "27px",
                                 padding: "0 8px",
-                                border: "1px solid #d7deea",
+                                border: "1px solid var(--cm-search-button-border)",
                                 borderRadius: "4px",
-                                background: "#ffffff",
-                                color: "#334155",
+                                background: "var(--cm-search-button-bg)",
+                                color: "var(--cm-search-button-text)",
                                 cursor: "pointer",
                             },
                             ".cm-search button:hover": {
-                                backgroundColor: "#f3f7ff",
-                                borderColor: "#c5d2e6",
+                                backgroundColor: "var(--cm-search-button-hover-bg)",
+                                borderColor: "var(--cm-search-button-hover-border)",
                             },
                             ".cm-search button:focus": {
                                 outline: "none",
-                                borderColor: "#2563eb",
+                                borderColor: "var(--accent-primary)",
                             },
                             ".cm-search button[name='close']": {
                                 width: "20px",
@@ -408,7 +408,7 @@ watch(
                                 justifyContent: "center",
                                 height: "27px",
                                 padding: "0 8px",
-                                color: "#334155",
+                                color: "var(--cm-search-label-checkbox-text)",
                                 cursor: "pointer",
                                 lineHeight: 1,
                             },
@@ -803,15 +803,15 @@ function streamLanguage(mode) {
     min-height: 0;
     height: calc(100% - 30px);
     overflow: hidden;
-    background: #fff;
+    background: var(--bg-surface);
 }
 .code-preview-status {
-    background: #f1f5f9;
+    background: var(--bg-statusbar);
     height: 30px;
     line-height: 30px;
     padding: 0 12px;
     font-size: 13px;
-    color: #64748b;
+    color: var(--text-muted);
     display: flex;
     align-items: center;
     column-gap: 20px;
@@ -829,7 +829,7 @@ function streamLanguage(mode) {
     border: 1px solid transparent;
     border-radius: 2px;
     background: transparent;
-    color: #334155;
+    color: var(--text-secondary);
     font-size: 12px;
     outline: none;
     appearance: none;
@@ -838,8 +838,8 @@ function streamLanguage(mode) {
 
 .code-preview-encoding-select:focus {
     padding: 0 4px;
-    border-color: #2563eb;
-    background: #ffffff;
+    border-color: var(--accent-primary);
+    background: var(--bg-surface);
     appearance: auto;
 }
 

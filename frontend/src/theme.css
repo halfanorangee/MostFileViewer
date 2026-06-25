@@ -1,0 +1,180 @@
+/**
+ * MostFileViewer 主题变量定义
+ *
+ * 所有 UI 颜色集中在此文件管理，组件中通过 var(--token) 引用。
+ * 当前阶段仅定义浅色主题（:root），为未来暗色主题预留
+ * [data-theme="dark"] 覆写入口。
+ */
+
+:root {
+    /* ================================================================
+     * 文字颜色
+     * ================================================================ */
+    --text-primary: #1f2937;        /* 主要文字：body、树节点、单元格、编辑器 */
+    --text-heading: #111827;        /* 标题级文字：文档预览区 */
+    --text-active: #0f172a;         /* 选中态文字：树节点 active */
+    --text-secondary: #334155;      /* 次要文字：标题栏、下拉菜单、表头、面板 */
+    --text-tertiary: var(--text-secondary); /* 三级文字：Excel 行列头（合并至 secondary） */
+    --text-toolbar: #475569;        /* 工具栏文字：PPT 工具栏 */
+    --text-muted: #64748b;          /* 弱化文字：按钮、搜索计数、关闭按钮 */
+    --text-hint: var(--text-muted);     /* 提示文字：空状态、图片提示（合并至 muted） */
+    --text-caption: #5b6b83;        /* 标注文字：hero eyebrow、zoom 标签 */
+    --text-description: var(--text-caption); /* 描述文字：hero description（合并至 caption） */
+    --text-disabled: #94a3b8;       /* 禁用/占位文字：拖拽图标、gutter */
+    --text-notice: #9a3412;         /* 通知文字：CSV 提示 */
+
+    /* ================================================================
+     * 背景颜色
+     * ================================================================ */
+    --bg-app: #f3f6fb;              /* 应用根背景 */
+    --bg-surface: #ffffff;          /* 卡片/面板/内容区背景 */
+    --bg-titlebar: #e8edf5;         /* 标题栏背景 */
+    --bg-preview: #edf2f7;          /* 文档预览区背景（Word/PPT/PDF） */
+    --bg-image-viewer: #f3f4f6;     /* 图片预览区背景 */
+    --bg-dropzone: #f8fafc;         /* 拖拽区背景 */
+    --bg-toolbar: #f9fafc;          /* 工具栏背景（Excel） */
+    --bg-statusbar: #f1f5f9;        /* 状态栏背景（Code 底栏） */
+    --bg-panel: #f9fbff;            /* 面板背景（CodeMirror 搜索面板） */
+    --bg-hover: #f5f8fc;            /* 悬浮态背景：树节点 */
+    --bg-active: #eaf2ff;           /* 选中态背景：树节点 active */
+    --bg-tab-active: var(--bg-active);   /* Tab 选中背景、拖拽激活态（合并至 active） */
+    --bg-hover-accent: var(--bg-hover);  /* 悬浮态背景（强调色系）：下拉菜单、按钮 hover（合并至 hover） */
+    --bg-header: #eef2f7;           /* 表头/边角背景：Excel 行列头 */
+    --bg-active-line: #f8fbff;      /* 当前行高亮背景（CodeMirror） */
+    --bg-active-line-gutter: #f1f5f9; /* 当前行号高亮背景 */
+
+    /* ================================================================
+     * 边框颜色
+     * ================================================================ */
+    --border-default: #dbe3f0;      /* 默认边框：卡片、面板 */
+    --border-strong: #d1d9e6;       /* 较强边框：标题栏、下拉菜单、右键菜单 */
+    --border-subtle: #e6edf7;       /* 细弱边框：面板头、工具栏底边 */
+    --border-cell: #d7deea;         /* 单元格/输入框边框 */
+    --border-gutter: #e2e8f0;       /* 编辑器行号边框 */
+    --border-input: #c5d2e6;        /* 输入控件边框（hover 态） */
+    --border-dashed: #cbd5e1;       /* 虚线边框：拖拽区 */
+    --border-toolbar: rgba(148, 163, 184, 0.28); /* 工具栏半透明边框（PPT） */
+    --border-toolbar-pdf: rgba(148, 163, 184, 0.35); /* PDF 工具栏边框 */
+    --border-toolbar-image: rgba(17, 24, 39, 0.1);   /* 图片工具栏边框 */
+
+    /* ================================================================
+     * 主题色（蓝色系）
+     * ================================================================ */
+    --accent-primary-rgb: 37, 99, 235;  /* 主强调色 RGB 通道，供 rgba 派生使用 */
+    --accent-primary: rgb(var(--accent-primary-rgb));      /* 主强调色 */
+    --accent-hover: #1d4ed8;        /* hover 态 */
+    --accent-active: #154ec1;       /* active/选中态 */
+    --accent-deep: #1e40af;         /* 深层强调色（拖拽态文字） */
+
+    /* ================================================================
+     * 状态色
+     * ================================================================ */
+    --status-error: #ef4444;        /* 错误状态 */
+    --status-error-text: #c53030;   /* 错误文字 */
+    --color-danger: #e81123;        /* 通用危险色：关闭按钮 hover、layui danger */
+    --status-error-bg: var(--color-danger); /* 兼容旧引用（语义等同 --color-danger） */
+    --text-on-danger: #ffffff;      /* 危险色背景上的文字（关闭按钮等） */
+    --status-warning: #f59e0b;      /* 警告/dirty 状态 */
+    --status-info-rgb: 59, 130, 246;     /* 信息色 RGB 通道，供 rgba 派生使用 */
+    --status-info: rgb(var(--status-info-rgb));         /* 信息/saving 状态 */
+    --status-search-match-bg: #fef3c7;     /* 搜索匹配高亮背景 */
+    --status-search-match-border: #f59e0b; /* 搜索匹配高亮边框 */
+    --status-search-selected-bg: #dbeafe;  /* 搜索选中匹配背景 */
+
+    /* ================================================================
+     * 交互态透明色
+     * ================================================================ */
+    --hover-overlay: rgba(0, 0, 0, 0.06);          /* 标题栏按钮 hover 叠加 */
+    --accent-overlay: rgba(var(--accent-primary-rgb), 0.1);      /* 强调色透明叠加（active btn） */
+    --accent-focus-ring: rgba(var(--accent-primary-rgb), 0.12);  /* 焦点环 */
+    --accent-glow: rgba(var(--accent-primary-rgb), 0.18);        /* 搜索激活发光 */
+
+    /* ================================================================
+     * 阴影
+     * ================================================================ */
+    --shadow-dropdown: 0 8px 24px rgba(15, 23, 42, 0.12);  /* 下拉/右键菜单 */
+    --shadow-page: 0 18px 40px rgba(15, 23, 42, 0.16);     /* 文档页面投影 */
+
+    /* ================================================================
+     * 工具栏半透明背景
+     * ================================================================ */
+    --bg-toolbar-ppt: rgba(255, 255, 255, 0.86);
+    --bg-toolbar-pdf: rgba(255, 255, 255, 0.9);
+    --bg-toolbar-image: rgba(255, 255, 255, 0.92);
+
+    /* ================================================================
+     * 渐变背景
+     * ================================================================ */
+    --bg-word-preview:
+        radial-gradient(
+            circle at top,
+            rgba(255, 255, 255, 0.72),
+            transparent 32%
+        ),
+        var(--bg-preview);
+
+    /* ================================================================
+     * CodeMirror 专用变量
+     * ================================================================ */
+    --cm-bg: var(--bg-surface);
+    --cm-text: var(--text-primary);
+    --cm-gutter-bg: var(--bg-dropzone);
+    --cm-gutter-text: var(--text-disabled);
+    --cm-gutter-border: var(--border-gutter);
+    --cm-active-line-bg: var(--bg-active-line);
+    --cm-active-line-gutter-bg: var(--bg-active-line-gutter);
+    --cm-selection-bg: rgba(var(--accent-primary-rgb), 0.28);
+    --cm-selection-line-bg: rgba(var(--accent-primary-rgb), 0.22);
+    --cm-selection-match-bg: rgba(var(--status-info-rgb), 0.12);
+    --cm-cursor-color: var(--accent-primary);
+    --cm-search-match-bg: var(--status-search-match-bg);
+    --cm-search-match-border: var(--status-search-match-border);
+    --cm-search-match-selected-bg: var(--status-search-selected-bg);
+    --cm-search-match-selected-border: var(--accent-primary);
+    --cm-panels-bg: var(--bg-panel);
+    --cm-panels-text: var(--text-secondary);
+    --cm-panels-border: var(--border-subtle);
+    --cm-search-label-text: var(--text-muted);
+    --cm-search-input-border: var(--border-cell);
+    --cm-search-input-bg: var(--bg-surface);
+    --cm-search-input-text: var(--text-primary);
+    --cm-search-checkbox-border: var(--border-input);
+    --cm-search-checkbox-bg: var(--bg-surface);
+    --cm-search-checkbox-hover-border: var(--text-disabled);
+    --cm-search-checkbox-hover-bg: var(--bg-active-line);
+    --cm-search-checkbox-focus-ring: var(--accent-focus-ring);
+    --cm-search-checkbox-checked-bg: var(--accent-primary);
+    --cm-search-checkbox-checked-border: var(--accent-primary);
+    --cm-search-checkbox-check-color: #ffffff;
+    --cm-search-button-border: var(--border-cell);
+    --cm-search-button-bg: var(--bg-surface);
+    --cm-search-button-text: var(--text-secondary);
+    --cm-search-button-hover-bg: var(--bg-hover-accent);
+    --cm-search-button-hover-border: var(--border-input);
+    --cm-search-label-checkbox-text: var(--text-secondary);
+
+    /* ================================================================
+     * Excel 边框默认色（composables 中使用）
+     * ================================================================ */
+    --excel-border-default: var(--text-primary);
+
+    /* ================================================================
+     * layui-vue 全局变量对齐
+     * 将 layui 主色与项目主色统一
+     * ================================================================ */
+    --global-primary-color: var(--accent-primary);
+    --global-normal-color: #1e9fff;
+    --global-warm-color: var(--status-warning);
+    --global-danger-color: var(--color-danger);
+    --global-checked-color: var(--accent-primary);
+    --global-info-color: #31BDEC;
+    --global-border-radius: 2px;
+    --global-neutral-color-1: var(--bg-dropzone);
+    --global-neutral-color-2: var(--bg-dropzone);
+    --global-neutral-color-3: var(--border-subtle);
+    --global-neutral-color-4: #e2e2e2;
+    --global-neutral-color-5: #dddddd;
+    --global-neutral-color-6: var(--border-strong);
+    --global-neutral-color-7: #cccccc;
+    --global-neutral-color-8: var(--border-input);
+}

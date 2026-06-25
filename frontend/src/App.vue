@@ -927,7 +927,7 @@ function stopAutoSave() {
     height: 100%;
     min-height: 0;
     overflow: hidden;
-    background-color: #fff;
+    background-color: var(--bg-surface);
 }
 
 .pane-card__header {
@@ -936,7 +936,7 @@ function stopAutoSave() {
     align-items: center;
     padding: 2px 12px;
     font-size: 16px;
-    border-bottom: 1px solid #e6edf7;
+    border-bottom: 1px solid var(--border-subtle);
     font-weight: 600;
 }
 </style>

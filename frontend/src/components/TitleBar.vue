@@ -290,8 +290,8 @@ function handleSelectFolder() {
 }
 
 .title-bar__btn--active {
-    color: #154ec1;
-    background: rgba(37, 99, 235, 0.1);
+    color: var(--accent-active);
+    background: var(--accent-overlay);
 }
 
 .dropdown-menu {
@@ -300,10 +300,10 @@ function handleSelectFolder() {
     left: 50%;
     transform: translateX(-50%);
     min-width: 150px;
-    background: #ffffff;
-    border: 1px solid #d1d9e6;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-strong);
     border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    box-shadow: var(--shadow-dropdown);
     padding: 4px;
     z-index: 100;
 }
@@ -317,7 +317,7 @@ function handleSelectFolder() {
     border: 0;
     border-radius: 4px;
     background: transparent;
-    color: #334155;
+    color: var(--text-secondary);
     font-size: 13px;
     cursor: pointer;
     text-align: left;
@@ -325,18 +325,18 @@ function handleSelectFolder() {
 }
 
 .dropdown-menu__item:hover {
-    background: #f3f7ff;
-    color: #154ec1;
+    background: var(--bg-hover-accent);
+    color: var(--accent-active);
 }
 
 .dropdown-menu__icon {
     width: 16px;
     height: 16px;
-    color: #64748b;
+    color: var(--text-muted);
     flex-shrink: 0;
 }
 
 .dropdown-menu__item:hover .dropdown-menu__icon {
-    color: #154ec1;
+    color: var(--accent-active);
 }
 </style>

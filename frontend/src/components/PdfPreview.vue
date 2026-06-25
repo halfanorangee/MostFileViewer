@@ -79,8 +79,8 @@ onBeforeUnmount(() => {
     height: 100%;
     flex-direction: column;
     overflow: hidden;
-    background: #edf2f7;
-    color: #111827;
+    background: var(--bg-preview);
+    color: var(--text-heading);
 }
 
 .pdf-preview__toolbar {
@@ -90,9 +90,9 @@ onBeforeUnmount(() => {
     gap: 16px;
     min-height: 40px;
     padding: 0 14px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.35);
-    background: rgba(255, 255, 255, 0.9);
-    color: #334155;
+    border-bottom: 1px solid var(--border-toolbar-pdf);
+    background: var(--bg-toolbar-pdf);
+    color: var(--text-secondary);
     font-size: 13px;
 }
 
@@ -108,7 +108,7 @@ onBeforeUnmount(() => {
     width: 100%;
     height: 100%;
     border: 0;
-    background: #ffffff;
+    background: var(--bg-surface);
 }
 
 .pdf-preview__empty {
@@ -117,7 +117,7 @@ onBeforeUnmount(() => {
     height: 100%;
     align-items: center;
     justify-content: center;
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 14px;
 }
 

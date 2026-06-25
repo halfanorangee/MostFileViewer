@@ -102,24 +102,24 @@ function handleContextMenu(event) {
     padding: 2px 4px;
     border: 0;
     background: transparent;
-    color: #1f2937;
+    color: var(--text-primary);
     text-align: left;
     cursor: pointer;
 }
 
 .tree-node__row:hover {
-    background: #f5f8fc;
+    background: var(--bg-hover);
 }
 
 .tree-node__row--active,
 .tree-node__row--context-active {
-    background: #eaf2ff;
-    color: #0f172a;
+    background: var(--bg-active);
+    color: var(--text-active);
 }
 
 .tree-node__caret {
     width: 12px;
-    color: #64748b;
+    color: var(--text-muted);
     flex-shrink: 0;
 }
 

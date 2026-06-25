@@ -223,8 +223,8 @@ onBeforeUnmount(() => {
     height: 100%;
     flex-direction: column;
     overflow: hidden;
-    background: #f3f4f6;
-    color: #111827;
+    background: var(--bg-image-viewer);
+    color: var(--text-heading);
 }
 
 .image-preview__toolbar {
@@ -235,13 +235,13 @@ onBeforeUnmount(() => {
     justify-content: space-between;
     gap: 12px;
     padding: 0 16px;
-    border-bottom: 1px solid rgba(17, 24, 39, 0.1);
-    background: rgba(255, 255, 255, 0.92);
+    border-bottom: 1px solid var(--border-toolbar-image);
+    background: var(--bg-toolbar-image);
     font-size: 13px;
 }
 
 .image-preview__hint {
-    color: #6b7280;
+    color: var(--text-hint);
 }
 
 .image-preview__stage {
@@ -275,6 +275,6 @@ onBeforeUnmount(() => {
 }
 
 .image-preview__empty {
-    color: #6b7280;
+    color: var(--text-hint);
 }
 </style>

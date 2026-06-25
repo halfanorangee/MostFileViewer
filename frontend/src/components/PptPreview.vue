@@ -215,8 +215,8 @@ onBeforeUnmount(() => {
     height: 100%;
     flex-direction: column;
     overflow: hidden;
-    background: #edf2f7;
-    color: #111827;
+    background: var(--bg-preview);
+    color: var(--text-heading);
 }
 
 .ppt-preview__toolbar {
@@ -226,14 +226,14 @@ onBeforeUnmount(() => {
     justify-content: space-between;
     gap: 12px;
     padding: 0 16px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.28);
-    background: rgba(255, 255, 255, 0.86);
+    border-bottom: 1px solid var(--border-toolbar);
+    background: var(--bg-toolbar-ppt);
     font-size: 13px;
-    color: #475569;
+    color: var(--text-toolbar);
 }
 
 .ppt-preview__hint {
-    color: #94a3b8;
+    color: var(--text-disabled);
 }
 
 .ppt-preview__stage {
@@ -261,7 +261,7 @@ onBeforeUnmount(() => {
 }
 
 .ppt-preview__stage :deep(.pptx-preview-slide-wrapper) {
-    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+    box-shadow: var(--shadow-page);
 }
 
 @media (max-width: 768px) {

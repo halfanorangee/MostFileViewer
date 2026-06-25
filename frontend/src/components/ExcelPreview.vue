@@ -798,24 +798,24 @@ onBeforeUnmount(() => {
     flex-wrap: wrap;
     gap: 12px;
     padding: 8px 12px;
-    border-bottom: 1px solid #e6edf7;
-    background: #f9fafc;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-toolbar);
     flex-shrink: 0;
 }
 
 .excel-viewer__sheet-select {
     padding: 4px 8px;
-    border: 1px solid #dbe3f0;
+    border: 1px solid var(--border-default);
     border-radius: 4px;
     font-size: 13px;
-    background: #fff;
-    color: #1f2937;
+    background: var(--bg-surface);
+    color: var(--text-primary);
     outline: none;
     cursor: pointer;
 }
 
 .excel-viewer__sheet-select:focus {
-    border-color: #2563eb;
+    border-color: var(--accent-primary);
 }
 
 .excel-viewer__notice {
@@ -824,7 +824,7 @@ onBeforeUnmount(() => {
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 12px;
-    color: #9a3412;
+    color: var(--text-notice);
 }
 
 .excel-viewer__search {
@@ -838,17 +838,17 @@ onBeforeUnmount(() => {
     width: min(240px, 32vw);
     height: 28px;
     padding: 0 8px;
-    border: 1px solid #d7deea;
+    border: 1px solid var(--border-cell);
     border-radius: 4px;
-    background: #fff;
-    color: #1f2937;
+    background: var(--bg-surface);
+    color: var(--text-primary);
     font-size: 13px;
     outline: none;
 }
 
 .excel-viewer__search-input:focus {
-    border-color: #2563eb;
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px var(--accent-focus-ring);
 }
 
 .excel-viewer__search-input:disabled,
@@ -859,7 +859,7 @@ onBeforeUnmount(() => {
 
 .excel-viewer__search-count {
     min-width: 46px;
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 12px;
     text-align: center;
 }
@@ -867,22 +867,22 @@ onBeforeUnmount(() => {
 .excel-viewer__search-button {
     height: 28px;
     padding: 0 8px;
-    border: 1px solid #d7deea;
+    border: 1px solid var(--border-cell);
     border-radius: 4px;
-    background: #fff;
-    color: #334155;
+    background: var(--bg-surface);
+    color: var(--text-secondary);
     font-size: 13px;
     cursor: pointer;
 }
 
 .excel-viewer__search-button:not(:disabled):hover {
-    background: #f3f7ff;
-    border-color: #c5d2e6;
+    background: var(--bg-hover-accent);
+    border-color: var(--border-input);
 }
 
 .excel-viewer__zoom-label {
     font-size: 12px;
-    color: #5b6b83;
+    color: var(--text-caption);
     margin-left: auto;
 }
 
@@ -897,11 +897,11 @@ onBeforeUnmount(() => {
 }
 
 .excel-viewer__error {
-    color: #c53030;
+    color: var(--status-error-text);
 }
 
 .excel-viewer__empty {
-    color: #5b6b83;
+    color: var(--text-caption);
 }
 
 .excel-viewer__table-wrapper {
@@ -923,8 +923,8 @@ onBeforeUnmount(() => {
     top: 0;
     left: 0;
     z-index: 4;
-    background: #eef2f7;
-    border: 1px solid #d7deea;
+    background: var(--bg-header);
+    border: 1px solid var(--border-cell);
 }
 
 .excel-viewer__col-header,
@@ -932,11 +932,11 @@ onBeforeUnmount(() => {
     position: absolute;
     box-sizing: border-box;
     user-select: none;
-    background: #eef2f7;
-    border: 1px solid #d7deea;
+    background: var(--bg-header);
+    border: 1px solid var(--border-cell);
     padding: 0 8px;
     font-weight: 600;
-    color: #374151;
+    color: var(--text-tertiary);
     text-align: center;
     overflow: hidden;
     z-index: 2;
@@ -980,23 +980,23 @@ onBeforeUnmount(() => {
 .excel-viewer__cell {
     position: absolute;
     box-sizing: border-box;
-    border: 1px solid #d7deea;
+    border: 1px solid var(--border-cell);
     padding: 4px 8px;
-    color: #1f2937;
+    color: var(--text-primary);
     line-height: 1.4;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .excel-viewer__cell--search-match {
-    box-shadow: inset 0 0 0 2px #f59e0b;
+    box-shadow: inset 0 0 0 2px var(--status-warning);
 }
 
 .excel-viewer__cell--search-active {
     z-index: 1;
     box-shadow:
-        inset 0 0 0 2px #2563eb,
-        0 0 0 2px rgba(37, 99, 235, 0.18);
+        inset 0 0 0 2px var(--accent-primary),
+        0 0 0 2px var(--accent-glow);
 }
 
 @media (max-width: 768px) {

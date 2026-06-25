@@ -13,8 +13,8 @@ body,
 body {
     font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     line-height: 1.5;
-    color: #1f2937;
-    background: #f3f6fb;
+    color: var(--text-primary);
+    background: var(--bg-app);
 }
 
 button,
@@ -29,9 +29,9 @@ input {
     align-items: center;
     justify-content: space-between;
     height: 40px;
-    background: #e8edf5;
-    color: #334155;
-    border-bottom: 1px solid #d1d9e6;
+    background: var(--bg-titlebar);
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-strong);
     user-select: none;
     flex-shrink: 0;
 }
@@ -66,7 +66,7 @@ input {
     height: 100%;
     border: 0;
     background: transparent;
-    color: #64748b;
+    color: var(--text-muted);
     cursor: pointer;
     transition:
         background 0.15s,
@@ -74,13 +74,13 @@ input {
 }
 
 .title-bar__btn:hover {
-    background: rgba(0, 0, 0, 0.06);
-    color: #1e293b;
+    background: var(--hover-overlay);
+    color: var(--text-primary);
 }
 
 .title-bar__btn--close:hover {
-    background: #e81123;
-    color: #fff;
+    background: var(--color-danger);
+    color: var(--text-on-danger);
 }
 
 .title-bar__icon {
@@ -103,8 +103,8 @@ input {
 
 .hero__panel,
 .pane-card {
-    background: #ffffff;
-    border: 1px solid #dbe3f0;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: 14px;
 }
 
@@ -123,9 +123,9 @@ input {
     justify-content: center;
     gap: 16px;
     min-height: 180px;
-    border: 2px dashed #cbd5e1;
+    border: 2px dashed var(--border-dashed);
     border-radius: 12px;
-    background: #f8fafc;
+    background: var(--bg-dropzone);
     transition:
         border-color 0.2s,
         background 0.2s;
@@ -133,33 +133,33 @@ input {
 }
 
 .hero__dropzone--active {
-    border-color: #2563eb;
-    background: #eff6ff;
+    border-color: var(--accent-primary);
+    background: var(--bg-tab-active);
 }
 
 .hero__dropzone-icon {
     width: 48px;
     height: 48px;
-    color: #94a3b8;
+    color: var(--text-disabled);
 }
 
 .hero__dropzone--active .hero__dropzone-icon {
-    color: #2563eb;
+    color: var(--accent-primary);
 }
 
 .hero__dropzone-text {
     margin: 0;
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 15px;
 }
 
 .hero__dropzone--active .hero__dropzone-text {
-    color: #1e40af;
+    color: var(--accent-deep);
 }
 
 .hero__eyebrow {
     margin: 0 0 8px;
-    color: #5b6b83;
+    color: var(--text-caption);
     font-size: 13px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -172,7 +172,7 @@ input {
 .hero__description {
     max-width: 520px;
     margin: 16px 0 0;
-    color: #526072;
+    color: var(--text-description);
 }
 
 .hero__actions {
@@ -184,7 +184,7 @@ input {
 
 .hero__error {
     margin: 12px 0 0;
-    color: #c53030;
+    color: var(--status-error-text);
 }
 
 .workspace {
@@ -213,7 +213,7 @@ input {
     background: linear-gradient(
         to right,
         transparent 0,
-        #d7deea 50%,
+        var(--border-cell) 50%,
         transparent 100%
     );
 }
@@ -242,7 +242,7 @@ input {
 
 .file-tree__empty {
     padding: 24px 18px;
-    color: #6b7280;
+    color: var(--text-hint);
 }
 
 .preview-tabs {
@@ -271,7 +271,7 @@ input {
 }
 
 .preview-tabs__state--error {
-    color: #c53030;
+    color: var(--status-error-text);
 }
 
 .preview-tabs__content {
@@ -329,8 +329,8 @@ input {
 }
 
 .preview-tabs__lay .layui-tab-title li.layui-this {
-    background: #eff6ff;
-    color: #1d4ed8;
+    background: var(--bg-tab-active);
+    color: var(--accent-hover);
 }
 
 .preview-tabs__title {
@@ -356,16 +356,16 @@ input {
 }
 
 .preview-tabs__status--dirty {
-    color: #f59e0b;
+    color: var(--status-warning);
 }
 
 .preview-tabs__status--saving {
-    color: #3b82f6;
+    color: var(--status-info);
     animation: spin 1s linear infinite;
 }
 
 .preview-tabs__status--error {
-    color: #ef4444;
+    color: var(--status-error);
     font-weight: 700;
 }
 
@@ -388,27 +388,27 @@ input {
     border: 0;
     border-radius: 50%;
     background: transparent;
-    color: #64748b;
+    color: var(--text-muted);
     cursor: pointer;
     font-size: 16px;
     line-height: 1;
 }
 
 .preview-tabs__close:hover {
-    background: #dbeafe;
-    color: #1d4ed8;
+    background: var(--status-search-selected-bg);
+    color: var(--accent-hover);
 }
 
 .preview-tabs__lay .layui-tab-title li .layui-icon-close {
     margin-left: 8px;
     border-radius: 50%;
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 12px;
 }
 
 .preview-tabs__lay .layui-tab-title li .layui-icon-close:hover {
-    background: #dbeafe;
-    color: #1d4ed8;
+    background: var(--status-search-selected-bg);
+    color: var(--accent-hover);
 }
 
 /* Let the Excel viewer own its internal scrollbars */

@@ -98,10 +98,10 @@ function handleShowInFileManager() {
   z-index: 200;
   min-width: 160px;
   padding: 4px;
-  background: #fff;
-  border: 1px solid #d1d9e6;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  box-shadow: var(--shadow-dropdown);
 }
 
 .file-tree__context-menu-item {
@@ -110,14 +110,14 @@ function handleShowInFileManager() {
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: #334155;
+  color: var(--text-secondary);
   font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
 
 .file-tree__context-menu-item:hover {
-  background: #f3f7ff;
-  color: #154ec1;
+  background: var(--bg-hover-accent);
+  color: var(--accent-active);
 }
 </style>
