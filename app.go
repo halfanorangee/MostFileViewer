@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -23,9 +25,17 @@ import (
 	"golang.org/x/text/transform"
 )
 
-type App struct {
+// windowState 保存单个窗口的隔离状态
+type windowState struct {
 	currentRoot  string
 	allowedFiles map[string]struct{}
+	openPaths    map[string]struct{} // 当前窗口已打开的文件/文件夹路径集合
+	mu           sync.Mutex
+}
+
+type App struct {
+	states     sync.Map // windowID(uint) → *windowState
+	pathOwners sync.Map // canonicalPath(string) → windowID(uint)
 }
 
 type FileTreeNode struct {
@@ -56,17 +66,64 @@ type FileChunk struct {
 var revealPathInFileManager = openInFileManager
 
 func NewApp() *App {
-	return &App{
-		allowedFiles: make(map[string]struct{}),
-	}
+	return &App{}
 }
 
-func (a *App) SelectFile() (string, error) {
-	selectedPath, err := application.Get().Dialog.OpenFile().
+// windowIDFromCtx 从 context 提取窗口 ID
+func windowIDFromCtx(ctx context.Context) uint {
+	if win, ok := ctx.Value(application.WindowKey).(application.Window); ok {
+		return win.ID()
+	}
+	return 0
+}
+
+// getOrCreateState 获取或创建窗口状态
+func (a *App) getOrCreateState(ctx context.Context) *windowState {
+	id := windowIDFromCtx(ctx)
+	if id == 0 {
+		// 降级：无窗口上下文时返回临时状态（不应出现在正常流程中）
+		return &windowState{allowedFiles: make(map[string]struct{})}
+	}
+	actual, _ := a.states.LoadOrStore(id, &windowState{
+		allowedFiles: make(map[string]struct{}),
+		openPaths:    make(map[string]struct{}),
+	})
+	return actual.(*windowState)
+}
+
+// canonicalizePath 对路径进行统一规范化，用于去重比较
+func canonicalizePath(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	cleaned := filepath.Clean(absPath)
+
+	// 尽量解析符号链接/junction
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		cleaned = resolved
+	}
+
+	// Windows 下路径大小写不敏感，做归一化
+	if runtime.GOOS == "windows" {
+		cleaned = strings.ToLower(cleaned)
+	}
+
+	return cleaned, nil
+}
+
+func (a *App) SelectFile(ctx context.Context) (string, error) {
+	dialog := application.Get().Dialog.OpenFile().
 		CanChooseDirectories(false).
 		CanChooseFiles(true).
-		SetTitle("选择需要预览的文件").
-		PromptForSingleSelection()
+		SetTitle("选择需要预览的文件")
+
+	// 多窗口下将对话框归属到调用窗口
+	if win, ok := ctx.Value(application.WindowKey).(application.Window); ok {
+		dialog.AttachToWindow(win)
+	}
+
+	selectedPath, err := dialog.PromptForSingleSelection()
 	if err != nil {
 		return "", fmt.Errorf("打开文件选择框失败: %w", err)
 	}
@@ -87,16 +144,23 @@ func (a *App) SelectFile() (string, error) {
 		return "", errors.New("所选路径不是文件")
 	}
 
-	a.allowFile(cleanPath)
+	state := a.getOrCreateState(ctx)
+	allowFile(state, cleanPath)
 	return cleanPath, nil
 }
 
-func (a *App) SelectFolder() (string, error) {
-	selectedPath, err := application.Get().Dialog.OpenFile().
+func (a *App) SelectFolder(ctx context.Context) (string, error) {
+	dialog := application.Get().Dialog.OpenFile().
 		CanChooseDirectories(true).
 		CanChooseFiles(false).
-		SetTitle("选择需要预览的文件夹").
-		PromptForSingleSelection()
+		SetTitle("选择需要预览的文件夹")
+
+	// 多窗口下将对话框归属到调用窗口
+	if win, ok := ctx.Value(application.WindowKey).(application.Window); ok {
+		dialog.AttachToWindow(win)
+	}
+
+	selectedPath, err := dialog.PromptForSingleSelection()
 	if err != nil {
 		return "", fmt.Errorf("打开文件夹选择框失败: %w", err)
 	}
@@ -120,7 +184,7 @@ func (a *App) SelectFolder() (string, error) {
 	return cleanPath, nil
 }
 
-func (a *App) LoadFolderTree(root string) ([]FileTreeNode, error) {
+func (a *App) LoadFolderTree(ctx context.Context, root string) ([]FileTreeNode, error) {
 	if strings.TrimSpace(root) == "" {
 		return nil, errors.New("文件夹路径不能为空")
 	}
@@ -143,20 +207,29 @@ func (a *App) LoadFolderTree(root string) ([]FileTreeNode, error) {
 		return nil, fmt.Errorf("扫描文件夹失败: %w", err)
 	}
 
-	a.currentRoot = cleanRoot
-	a.resetAllowedFiles()
+	state := a.getOrCreateState(ctx)
+	state.mu.Lock()
+	state.currentRoot = cleanRoot
+	state.allowedFiles = make(map[string]struct{})
+	state.mu.Unlock()
 	return nodes, nil
 }
 
-func (a *App) LoadFolderChildren(path string) ([]FileTreeNode, error) {
+func (a *App) LoadFolderChildren(ctx context.Context, path string) ([]FileTreeNode, error) {
 	cleanPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("解析文件夹路径失败: %w", err)
 	}
-	if strings.TrimSpace(a.currentRoot) == "" {
-		a.currentRoot = cleanPath
+
+	state := a.getOrCreateState(ctx)
+	state.mu.Lock()
+	if strings.TrimSpace(state.currentRoot) == "" {
+		state.currentRoot = cleanPath
 	}
-	if !isPathWithinRoot(a.currentRoot, cleanPath) {
+	root := state.currentRoot
+	state.mu.Unlock()
+
+	if !isPathWithinRoot(root, cleanPath) {
 		return nil, errors.New("当前文件夹不在已打开文件夹范围内")
 	}
 
@@ -175,16 +248,16 @@ func (a *App) LoadFolderChildren(path string) ([]FileTreeNode, error) {
 	return nodes, nil
 }
 
-func (a *App) ReadFile(path string) (*FileContent, error) {
-	return a.readFile(path, "")
+func (a *App) ReadFile(ctx context.Context, path string) (*FileContent, error) {
+	return a.readFile(ctx, path, "")
 }
 
-func (a *App) ReadFileWithEncoding(path string, encoding string) (*FileContent, error) {
-	return a.readFile(path, encoding)
+func (a *App) ReadFileWithEncoding(ctx context.Context, path string, encoding string) (*FileContent, error) {
+	return a.readFile(ctx, path, encoding)
 }
 
-func (a *App) readFile(path string, requestedEncoding string) (*FileContent, error) {
-	cleanPath, info, err := a.validateFilePath(path)
+func (a *App) readFile(ctx context.Context, path string, requestedEncoding string) (*FileContent, error) {
+	cleanPath, info, err := a.validateFilePath(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -231,8 +304,8 @@ func (a *App) readFile(path string, requestedEncoding string) (*FileContent, err
 	return content, nil
 }
 
-func (a *App) ReadFileChunk(path string, offset int64, size int) (*FileChunk, error) {
-	cleanPath, info, err := a.validateFilePath(path)
+func (a *App) ReadFileChunk(ctx context.Context, path string, offset int64, size int) (*FileChunk, error) {
+	cleanPath, info, err := a.validateFilePath(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -268,8 +341,8 @@ func (a *App) ReadFileChunk(path string, offset int64, size int) (*FileChunk, er
 	}, nil
 }
 
-func (a *App) SaveFile(path string, content string, encoding string) error {
-	cleanPath, info, err := a.validateFilePath(path)
+func (a *App) SaveFile(ctx context.Context, path string, content string, encoding string) error {
+	cleanPath, info, err := a.validateFilePath(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -320,8 +393,8 @@ func readFileHeader(path string, n int) ([]byte, error) {
 	return buf[:read], nil
 }
 
-func (a *App) ShowInFileManager(path string) error {
-	cleanPath, info, err := a.validateFileManagerPath(path)
+func (a *App) ShowInFileManager(ctx context.Context, path string) error {
+	cleanPath, info, err := a.validateFileManagerPath(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -332,7 +405,7 @@ func (a *App) ShowInFileManager(path string) error {
 	return nil
 }
 
-func (a *App) validateFilePath(path string) (string, os.FileInfo, error) {
+func (a *App) validateFilePath(ctx context.Context, path string) (string, os.FileInfo, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", nil, errors.New("文件路径不能为空")
 	}
@@ -341,10 +414,15 @@ func (a *App) validateFilePath(path string) (string, os.FileInfo, error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("解析文件路径失败: %w", err)
 	}
-	if strings.TrimSpace(a.currentRoot) == "" {
-		a.currentRoot = filepath.Dir(cleanPath)
+
+	state := a.getOrCreateState(ctx)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	if strings.TrimSpace(state.currentRoot) == "" {
+		state.currentRoot = filepath.Dir(cleanPath)
 	}
-	if !isPathWithinRoot(a.currentRoot, cleanPath) && !a.isAllowedFile(cleanPath) {
+	if !isPathWithinRoot(state.currentRoot, cleanPath) && !isAllowedFile(state, cleanPath) {
 		return "", nil, errors.New("当前文件不在已打开文件夹范围内")
 	}
 
@@ -359,7 +437,7 @@ func (a *App) validateFilePath(path string) (string, os.FileInfo, error) {
 	return cleanPath, info, nil
 }
 
-func (a *App) validateFileManagerPath(path string) (string, os.FileInfo, error) {
+func (a *App) validateFileManagerPath(ctx context.Context, path string) (string, os.FileInfo, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", nil, errors.New("文件路径不能为空")
 	}
@@ -374,14 +452,18 @@ func (a *App) validateFileManagerPath(path string) (string, os.FileInfo, error) 
 		return "", nil, fmt.Errorf("文件不存在或无法访问: %w", err)
 	}
 
-	if strings.TrimSpace(a.currentRoot) == "" {
+	state := a.getOrCreateState(ctx)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	if strings.TrimSpace(state.currentRoot) == "" {
 		if info.IsDir() {
-			a.currentRoot = cleanPath
+			state.currentRoot = cleanPath
 		} else {
-			a.currentRoot = filepath.Dir(cleanPath)
+			state.currentRoot = filepath.Dir(cleanPath)
 		}
 	}
-	if !isPathWithinRoot(a.currentRoot, cleanPath) && !a.isAllowedFile(cleanPath) {
+	if !isPathWithinRoot(state.currentRoot, cleanPath) && !isAllowedFile(state, cleanPath) {
 		return "", nil, errors.New("当前文件不在已打开文件夹范围内")
 	}
 
@@ -730,25 +812,17 @@ func decodeText(data []byte, encoding string) (string, error) {
 	return string(decoded), nil
 }
 
-func (a *App) allowFile(path string) {
-	if a.allowedFiles == nil {
-		a.allowedFiles = make(map[string]struct{})
+// allowFile 将文件路径加入窗口的白名单
+func allowFile(state *windowState, path string) {
+	if state.allowedFiles == nil {
+		state.allowedFiles = make(map[string]struct{})
 	}
-	a.allowedFiles[path] = struct{}{}
+	state.allowedFiles[path] = struct{}{}
 }
 
-func (a *App) resetAllowedFiles() {
-	if a.allowedFiles == nil {
-		a.allowedFiles = make(map[string]struct{})
-		return
-	}
-	for path := range a.allowedFiles {
-		delete(a.allowedFiles, path)
-	}
-}
-
-func (a *App) isAllowedFile(path string) bool {
-	_, ok := a.allowedFiles[path]
+// isAllowedFile 检查文件路径是否在窗口的白名单中
+func isAllowedFile(state *windowState, path string) bool {
+	_, ok := state.allowedFiles[path]
 	return ok
 }
 
@@ -758,4 +832,108 @@ func isPathWithinRoot(root, candidate string) bool {
 		return false
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// ============================================================================
+// 窗口管理方法
+// ============================================================================
+
+// NewWindow 创建一个新窗口，展示首页
+func (a *App) NewWindow() {
+	app := application.Get()
+	win := createMainWindow(app)
+	registerWindowHandlers(win, a)
+	win.Show()
+}
+
+// RegisterOpenPath 注册当前窗口打开的文件/文件夹路径
+func (a *App) RegisterOpenPath(ctx context.Context, path string) error {
+	canonicalPath, err := canonicalizePath(path)
+	if err != nil {
+		return err
+	}
+	id := windowIDFromCtx(ctx)
+	if id == 0 {
+		return errors.New("无法获取当前窗口")
+	}
+
+	state := a.getOrCreateState(ctx)
+	state.mu.Lock()
+	if state.openPaths == nil {
+		state.openPaths = make(map[string]struct{})
+	}
+	state.openPaths[canonicalPath] = struct{}{}
+	state.mu.Unlock()
+
+	a.pathOwners.Store(canonicalPath, id)
+	return nil
+}
+
+// UnregisterOpenPath 注销当前窗口不再打开的路径（如关闭 tab 或回到首页）
+func (a *App) UnregisterOpenPath(ctx context.Context, path string) error {
+	canonicalPath, err := canonicalizePath(path)
+	if err != nil {
+		return err
+	}
+	id := windowIDFromCtx(ctx)
+	if id == 0 {
+		return errors.New("无法获取当前窗口")
+	}
+
+	state := a.getOrCreateState(ctx)
+	state.mu.Lock()
+	delete(state.openPaths, canonicalPath)
+	state.mu.Unlock()
+
+	if owner, ok := a.pathOwners.Load(canonicalPath); ok && owner.(uint) == id {
+		a.pathOwners.Delete(canonicalPath)
+	}
+	return nil
+}
+
+// CheckPathOpened 检查路径是否已在其他窗口打开
+// 返回已打开该路径的窗口 ID，若未打开则返回 0
+func (a *App) CheckPathOpened(ctx context.Context, path string) (uint, error) {
+	canonicalPath, err := canonicalizePath(path)
+	if err != nil {
+		return 0, fmt.Errorf("解析路径失败: %w", err)
+	}
+
+	currentID := windowIDFromCtx(ctx)
+	owner, ok := a.pathOwners.Load(canonicalPath)
+	if !ok {
+		return 0, nil
+	}
+	ownerID := owner.(uint)
+	if ownerID == currentID {
+		return 0, nil
+	}
+	return ownerID, nil
+}
+
+// FocusWindow 聚焦指定窗口
+func (a *App) FocusWindow(windowID uint) error {
+	app := application.Get()
+	win, exists := app.Window.GetByID(windowID)
+	if !exists {
+		return errors.New("窗口不存在")
+	}
+	win.Show()
+	win.Focus()
+	return nil
+}
+
+// cleanupWindowState 清理窗口关闭后的状态
+func (a *App) cleanupWindowState(windowID uint) {
+	if value, ok := a.states.Load(windowID); ok {
+		state := value.(*windowState)
+		state.mu.Lock()
+		for path := range state.openPaths {
+			if owner, ok := a.pathOwners.Load(path); ok && owner.(uint) == windowID {
+				a.pathOwners.Delete(path)
+			}
+		}
+		state.mu.Unlock()
+	}
+	a.states.Delete(windowID)
 }

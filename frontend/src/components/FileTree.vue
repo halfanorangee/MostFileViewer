@@ -13,14 +13,14 @@
     />
     <div
       v-if="contextMenu.open"
-      class="file-tree__context-menu"
+      class="menu-panel file-tree__context-menu"
       :style="contextMenuStyle"
       @click.stop
       @contextmenu.prevent
     >
       <button
         type="button"
-        class="file-tree__context-menu-item"
+        class="menu-item"
         @click="handleShowInFileManager"
       >
         在文件管理器中显示
@@ -96,28 +96,5 @@ function handleShowInFileManager() {
 .file-tree__context-menu {
   position: fixed;
   z-index: 200;
-  min-width: 160px;
-  padding: 4px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  box-shadow: var(--shadow-dropdown);
-}
-
-.file-tree__context-menu-item {
-  width: 100%;
-  padding: 8px 12px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.file-tree__context-menu-item:hover {
-  background: var(--bg-hover-accent);
-  color: var(--accent-active);
 }
 </style>

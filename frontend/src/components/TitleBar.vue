@@ -39,46 +39,25 @@
                     >
                         文件
                     </button>
-                    <div v-if="menuOpen" class="dropdown-menu">
+                    <div v-if="menuOpen" class="menu-panel dropdown-menu">
                         <button
-                            class="dropdown-menu__item"
+                            class="menu-item"
                             @click.stop="handleSelectFile"
                         >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke-width="1.5"
-                                stroke="currentColor"
-                                class="dropdown-menu__icon"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
-                                />
-                            </svg>
                             选择文件
                         </button>
                         <button
-                            class="dropdown-menu__item"
+                            class="menu-item"
                             @click.stop="handleSelectFolder"
                         >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke-width="1.5"
-                                stroke="currentColor"
-                                class="dropdown-menu__icon"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
-                                />
-                            </svg>
                             选择文件夹
+                        </button>
+                        <div class="menu-divider"></div>
+                        <button
+                            class="menu-item"
+                            @click.stop="handleNewWindow"
+                        >
+                            新窗口
                         </button>
                     </div>
                 </div>
@@ -183,7 +162,12 @@ defineProps({
     },
 });
 
-const emit = defineEmits(["select-file", "select-folder", "toggle-sidebar"]);
+const emit = defineEmits([
+    "select-file",
+    "select-folder",
+    "toggle-sidebar",
+    "new-window",
+]);
 
 const isMaximized = ref(false);
 const menuOpen = ref(false);
@@ -265,6 +249,11 @@ function handleSelectFolder() {
     closeMenu();
     emit("select-folder");
 }
+
+function handleNewWindow() {
+    closeMenu();
+    emit("new-window");
+}
 </script>
 
 <style scoped>
@@ -299,34 +288,7 @@ function handleSelectFolder() {
     top: 100%;
     left: 50%;
     transform: translateX(-50%);
-    min-width: 150px;
-    background: var(--bg-surface);
-    border: 1px solid var(--border-strong);
-    border-radius: 6px;
-    box-shadow: var(--shadow-dropdown);
-    padding: 4px;
     z-index: 100;
-}
-
-.dropdown-menu__item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    padding: 8px 12px;
-    border: 0;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: 13px;
-    cursor: pointer;
-    text-align: left;
-    transition: background 0.15s;
-}
-
-.dropdown-menu__item:hover {
-    background: var(--bg-hover-accent);
-    color: var(--accent-active);
 }
 
 .dropdown-menu__icon {
@@ -336,7 +298,7 @@ function handleSelectFolder() {
     flex-shrink: 0;
 }
 
-.dropdown-menu__item:hover .dropdown-menu__icon {
+.menu-item:hover .dropdown-menu__icon {
     color: var(--accent-active);
 }
 </style>

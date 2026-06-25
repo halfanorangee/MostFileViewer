@@ -249,6 +249,43 @@ input {
     color: var(--text-hint);
 }
 
+/* ---- Shared Menu (dropdown / context menu) ---- */
+
+.menu-panel {
+    min-width: 140px;
+    padding: 4px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    box-shadow: var(--shadow-dropdown);
+}
+
+.menu-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 2px 8px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.menu-item:hover {
+    background: var(--bg-hover-accent);
+    color: var(--accent-active);
+}
+
+.menu-divider {
+    height: 1px;
+    background: var(--border-subtle);
+    margin: 4px 8px;
+}
+
 .preview-tabs {
     display: flex;
     flex-direction: column;

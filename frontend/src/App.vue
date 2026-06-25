@@ -5,6 +5,7 @@
         @select-folder="handleSelectFolder"
         @select-file="handleSelectFile"
         @toggle-sidebar="toggleSidebar"
+        @new-window="handleNewWindow"
     />
     <main class="page-shell">
         <section v-if="!selectedFolder" class="hero">
@@ -90,7 +91,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
-import { Events } from "@wailsio/runtime";
+import { Events, Window } from "@wailsio/runtime";
 import TitleBar from "./components/TitleBar.vue";
 import FileTree from "./components/FileTree.vue";
 import PreviewTabs from "./components/PreviewTabs.vue";
@@ -106,6 +107,86 @@ const previewTabs = ref(null);
 const globalError = ref("");
 let removeResizeListeners = null;
 let removeFilesDroppedListener = null;
+
+// ============================================================================
+// 多窗口去重与路径登记
+// ============================================================================
+
+/**
+ * 检查路径是否已在其他窗口打开
+ * @param {string} path - 文件/文件夹路径
+ * @returns {Promise<boolean>} true 表示已处理（已聚焦原窗口并关闭当前窗口），false 表示未重复
+ */
+async function checkAndRedirectIfOpened(path) {
+    try {
+        const existingWindowID = await App.CheckPathOpened(path);
+        if (existingWindowID && existingWindowID > 0) {
+            // 已在其他窗口打开，聚焦原窗口并关闭当前窗口
+            await App.FocusWindow(existingWindowID);
+            await Window.Close();
+            return true;
+        }
+    } catch (error) {
+        // 检查失败时不阻断正常流程
+    }
+    return false;
+}
+
+/**
+ * 注册当前窗口打开的路径
+ */
+async function registerOpenPath(path) {
+    try {
+        await App.RegisterOpenPath(path);
+    } catch (error) {
+        // silently ignore
+    }
+}
+
+/**
+ * 注销当前窗口不再打开的路径
+ */
+async function unregisterOpenPath(path) {
+    try {
+        await App.UnregisterOpenPath(path);
+    } catch (error) {
+        // silently ignore
+    }
+}
+
+/**
+ * 注销当前窗口所有已打开的路径（切换工作区或返回首页时调用）
+ */
+async function unregisterAllOpenPaths() {
+    const paths = new Set();
+
+    // 文件夹模式下注销文件夹路径
+    if (isActualFolderPreview.value && selectedFolder.value) {
+        paths.add(selectedFolder.value);
+    }
+
+    // 注销所有 tab 文件路径
+    for (const tab of openTabs.value) {
+        if (tab.path) {
+            paths.add(tab.path);
+        }
+    }
+
+    for (const path of paths) {
+        await unregisterOpenPath(path);
+    }
+}
+
+/**
+ * 新建窗口
+ */
+async function handleNewWindow() {
+    try {
+        await App.NewWindow();
+    } catch (error) {
+        // silently ignore
+    }
+}
 
 // 自动保存相关
 const autoSaveDebounceTimers = new Map();
@@ -162,6 +243,11 @@ async function handleSelectFile() {
             return;
         }
 
+        // 去重检查：如果已在其他窗口打开，直接关闭当前窗口
+        if (await checkAndRedirectIfOpened(filePath)) {
+            return;
+        }
+
         // 如果已有工作区，直接在预览区域添加新tab
         if (selectedFolder.value) {
             await addFileToWorkspace(filePath);
@@ -178,6 +264,9 @@ async function openFileInWorkspace(filePath) {
     if (!(await saveDirtyTabs())) {
         return;
     }
+
+    // 注销旧工作区的已打开路径
+    await unregisterAllOpenPaths();
 
     const fileName = getPathName(filePath);
     const fileNode = {
@@ -267,6 +356,11 @@ async function handleFilesDropped(event) {
         return;
     }
 
+    // 去重检查
+    if (await checkAndRedirectIfOpened(item.path)) {
+        return;
+    }
+
     if (item.isDir) {
         await handleOpenFolder(item.path);
     } else {
@@ -285,6 +379,9 @@ async function handleOpenFolder(folderPath) {
             return;
         }
 
+        // 注销旧工作区的已打开路径
+        await unregisterAllOpenPaths();
+
         const tree = await App.LoadFolderTree(folderPath);
         selectedFolder.value = folderPath;
         treeData.value = tree;
@@ -294,6 +391,9 @@ async function handleOpenFolder(folderPath) {
         await nextTick();
         openTabs.value = [];
         activeTabPath.value = "";
+
+        // 注册文件夹路径
+        await registerOpenPath(folderPath);
     } catch (error) {
         // silently ignore
     }
@@ -363,6 +463,9 @@ async function openFileNode(node) {
             savedVersion: 0,
             status: "ready",
         });
+
+        // 成功打开文件后登记该 tab 路径
+        await registerOpenPath(node.path);
     } catch (error) {
         updateTab(node.path, {
             status: "error",
@@ -380,9 +483,17 @@ async function handleSelectFolder() {
             return;
         }
 
+        // 去重检查
+        if (await checkAndRedirectIfOpened(folder)) {
+            return;
+        }
+
         if (!(await saveDirtyTabs())) {
             return;
         }
+
+        // 注销旧工作区的已打开路径
+        await unregisterAllOpenPaths();
 
         const tree = await App.LoadFolderTree(folder);
         selectedFolder.value = folder;
@@ -393,6 +504,9 @@ async function handleSelectFolder() {
         await nextTick();
         openTabs.value = [];
         activeTabPath.value = "";
+
+        // 注册文件夹路径
+        await registerOpenPath(folder);
     } catch (error) {
         // silently ignore
     }
@@ -449,6 +563,9 @@ async function handleCloseTab(path) {
 
     const nextTabs = openTabs.value.filter((tab) => tab.path !== path);
     openTabs.value = nextTabs;
+
+    // 注销已关闭 tab 的文件路径
+    await unregisterOpenPath(path);
 
     // 单文件模式下关闭最后一个 tab 后返回首页
     if (nextTabs.length === 0 && !isActualFolderPreview.value) {
