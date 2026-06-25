@@ -11,10 +11,7 @@
             <div class="hero__panel">
                 <div
                     class="hero__dropzone"
-                    :class="{ 'hero__dropzone--active': dragOver }"
-                    @dragover.prevent="handleDragOver"
-                    @dragleave="handleDragLeave"
-                    @drop.prevent="handleDrop"
+                    data-file-drop-target
                     @click="handleSelectFile"
                 >
                     <svg
@@ -31,7 +28,7 @@
                             d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
                         />
                     </svg>
-                    <p class="hero__dropzone-text">拖动文件到此处打开</p>
+                    <p class="hero__dropzone-text">拖动到此处打开</p>
                 </div>
                 <div class="hero__actions">
                     <lay-button type="primary" @click="handleSelectFile">
@@ -93,6 +90,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { Events } from "@wailsio/runtime";
 import TitleBar from "./components/TitleBar.vue";
 import FileTree from "./components/FileTree.vue";
 import PreviewTabs from "./components/PreviewTabs.vue";
@@ -106,8 +104,8 @@ const openTabs = ref([]);
 const activeTabPath = ref("");
 const previewTabs = ref(null);
 const globalError = ref("");
-const dragOver = ref(false);
 let removeResizeListeners = null;
+let removeFilesDroppedListener = null;
 
 // 自动保存相关
 const autoSaveDebounceTimers = new Map();
@@ -142,12 +140,17 @@ const isActualFolderPreview = computed(() => {
 onMounted(() => {
     window.addEventListener("keydown", handleGlobalShortcut);
     startAutoSaveInterval();
+    removeFilesDroppedListener = Events.On(
+        "files-dropped",
+        handleFilesDropped,
+    );
 });
 
 onBeforeUnmount(() => {
     stopResize();
     stopAutoSave();
     window.removeEventListener("keydown", handleGlobalShortcut);
+    removeFilesDroppedListener?.();
 });
 
 async function handleSelectFile() {
@@ -250,65 +253,30 @@ function findNodeByPath(nodes, targetPath) {
     return null;
 }
 
-function handleDragOver(event) {
-    dragOver.value = true;
-}
-
-function handleDragLeave() {
-    dragOver.value = false;
-}
-
-async function handleDrop(event) {
-    dragOver.value = false;
+async function handleFilesDropped(event) {
     globalError.value = "";
 
-    const items = event.dataTransfer.items;
-    if (!items || items.length === 0) {
+    const items = event.data;
+    if (!Array.isArray(items) || items.length === 0) {
         return;
     }
 
-    // Use the first item
-    const entry = items[0].webkitGetAsEntry?.();
-    if (!entry) {
-        // Fallback: try files
-        const file = event.dataTransfer.files[0];
-        if (file && file.path) {
-            // 如果已有工作区，直接添加新tab
-            if (selectedFolder.value) {
-                await addFileToWorkspace(file.path);
-            } else {
-                await openFileInWorkspace(file.path);
-            }
-        }
+    // 仅处理第一个拖入项
+    const item = items[0];
+    if (!item?.path) {
         return;
     }
 
-    if (entry.isDirectory) {
-        // Resolve the directory path
-        const dirPath = await resolveEntryPath(entry);
-        if (dirPath) {
-            await handleOpenFolder(dirPath);
-        }
+    if (item.isDir) {
+        await handleOpenFolder(item.path);
     } else {
-        const filePath = await resolveEntryPath(entry);
-        if (filePath) {
-            // 如果已有工作区，直接添加新tab
-            if (selectedFolder.value) {
-                await addFileToWorkspace(filePath);
-            } else {
-                await openFileInWorkspace(filePath);
-            }
+        // 如果已有工作区，直接添加新tab
+        if (selectedFolder.value) {
+            await addFileToWorkspace(item.path);
+        } else {
+            await openFileInWorkspace(item.path);
         }
     }
-}
-
-function resolveEntryPath(entry) {
-    return new Promise((resolve) => {
-        entry.file(
-            (file) => resolve(file.path || null),
-            () => resolve(null),
-        );
-    });
 }
 
 async function handleOpenFolder(folderPath) {
@@ -481,6 +449,14 @@ async function handleCloseTab(path) {
 
     const nextTabs = openTabs.value.filter((tab) => tab.path !== path);
     openTabs.value = nextTabs;
+
+    // 单文件模式下关闭最后一个 tab 后返回首页
+    if (nextTabs.length === 0 && !isActualFolderPreview.value) {
+        selectedFolder.value = "";
+        treeData.value = [];
+        activeTabPath.value = "";
+        return;
+    }
 
     if (activeTabPath.value !== path) {
         return;
