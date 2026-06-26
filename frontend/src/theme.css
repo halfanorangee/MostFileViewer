@@ -6,6 +6,7 @@
  */
 
 :root {
+    color-scheme: light;
     /* ================================================================
      * 文字颜色
      * ================================================================ */
@@ -167,6 +168,16 @@
     --excel-border-default: #1f2937; /* 文件内未指定颜色的边框默认色（固定深色） */
 
     /* ================================================================
+     * 滚动条
+     * ================================================================ */
+    --scrollbar-size: 12px;
+    --scrollbar-track: rgba(226, 232, 240, 0.48);
+    --scrollbar-thumb: rgba(100, 116, 139, 0.36);
+    --scrollbar-thumb-hover: rgba(71, 85, 105, 0.56);
+    --scrollbar-thumb-active: rgba(var(--accent-primary-rgb), 0.72);
+    --scrollbar-corner: transparent;
+
+    /* ================================================================
      * 布局尺寸
      * ================================================================ */
     --tab-height: 34px;             /* 预览 Tab 签高度（需同步覆盖 layui-tab-title 的 height 与 li 的 line-height） */
@@ -199,6 +210,7 @@
  * 仅覆写有变化的变量，未列出的变量自动继承 :root 的值
  * ================================================================ */
 [data-theme="dark"] {
+    color-scheme: dark;
     /* ---- 文字颜色 ---- */
     --text-primary: #e6edf3;
     --text-heading: #f0f6fc;
@@ -274,6 +286,13 @@
             transparent 32%
         ),
         var(--bg-preview);
+
+    /* ---- 滚动条 ---- */
+    --scrollbar-track: #0d1117;
+    --scrollbar-thumb: rgba(125, 133, 144, 0.38);
+    --scrollbar-thumb-hover: rgba(139, 148, 158, 0.62);
+    --scrollbar-thumb-active: rgba(var(--accent-primary-rgb), 0.82);
+    --scrollbar-corner: var(--scrollbar-track);
 
     /* ---- layui-vue 中性色对齐 ---- */
     --global-neutral-color-4: #30363d;

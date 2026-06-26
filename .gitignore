@@ -44,5 +44,6 @@ MostFileViewer
 
 # Temporary or local-only files
 .task/
+/docs/
 nul.download
 frontend/nul.download
