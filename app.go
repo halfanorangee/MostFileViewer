@@ -835,13 +835,48 @@ func isPathWithinRoot(root, candidate string) bool {
 }
 
 // ============================================================================
+// 主题管理方法
+// ============================================================================
+
+// themeBackgrounds 主题对应的窗口背景色 RGB
+var themeBackgrounds = map[string][3]uint8{
+	"light": {243, 246, 251},
+	"dark":  {13, 17, 23},
+}
+
+// SetWindowBackground 设置当前调用窗口的背景色
+func (a *App) SetWindowBackground(ctx context.Context, theme string) error {
+	win, ok := ctx.Value(application.WindowKey).(application.Window)
+	if !ok {
+		return errors.New("无法获取当前窗口")
+	}
+
+	rgb, exists := themeBackgrounds[strings.ToLower(theme)]
+	if !exists {
+		return fmt.Errorf("不支持的主题: %s", theme)
+	}
+
+	win.SetBackgroundColour(application.NewRGB(rgb[0], rgb[1], rgb[2]))
+	return nil
+}
+
+// BroadcastThemeChange 向所有窗口广播主题变更（多窗口同步备通道）
+func (a *App) BroadcastThemeChange(theme string) error {
+	app := application.Get()
+	app.Event.Emit("theme-changed", theme)
+	return nil
+}
+
+// ============================================================================
 // 窗口管理方法
 // ============================================================================
 
 // NewWindow 创建一个新窗口，展示首页
 func (a *App) NewWindow() {
 	app := application.Get()
-	win := createMainWindow(app)
+	// 新窗口默认使用明色背景；前端挂载后会通过 FOUC 脚本设置正确主题
+	// 并通过 SetWindowBackground 校正背景色
+	win := createMainWindow(app, "light")
 	registerWindowHandlers(win, a)
 	win.Show()
 }

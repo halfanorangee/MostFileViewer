@@ -4,6 +4,23 @@
         <meta charset="UTF-8" />
         <meta content="width=device-width, initial-scale=1.0" name="viewport" />
         <title>MostFileViewer</title>
+        <!-- FOUC 防护：在 CSS 和 Vue 加载前同步设置主题，避免白屏闪烁 -->
+        <script>
+            (function () {
+                try {
+                    var stored = localStorage.getItem("mfv-theme");
+                    var theme = stored;
+                    if (!theme || theme === "auto") {
+                        theme = window.matchMedia(
+                            "(prefers-color-scheme: dark)",
+                        ).matches
+                            ? "dark"
+                            : "light";
+                    }
+                    document.documentElement.setAttribute("data-theme", theme);
+                } catch (e) {}
+            })();
+        </script>
     </head>
     <body>
         <div id="app"></div>

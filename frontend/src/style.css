@@ -186,6 +186,11 @@ input {
     border-radius: 8px;
 }
 
+.hero__select-file-btn.layui-btn {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+}
+
 .hero__error {
     margin: 12px 0 0;
     color: var(--status-error-text);
@@ -369,6 +374,37 @@ input {
     margin: 0;
 }
 
+/* 覆盖 layui 默认 tab 高度（40px），通过 --tab-height 统一控制 */
+.preview-tabs__lay .layui-tab-title {
+    height: var(--tab-height);
+}
+
+.preview-tabs__lay .layui-tab-bar {
+    height: var(--tab-height);
+    background: var(--bg-surface);
+    border-color: var(--border-subtle);
+    border-bottom-color: var(--bg-surface);
+    color: var(--text-muted);
+}
+
+.preview-tabs__lay .layui-tab-bar.prev {
+    border-right-color: var(--border-subtle) !important;
+}
+
+.preview-tabs__lay .layui-tab-bar:not(.prev) {
+    border-left-color: var(--border-subtle);
+}
+
+.preview-tabs__lay .layui-tab-bar:hover {
+    background: var(--bg-panel);
+    color: var(--accent-hover);
+}
+
+.preview-tabs__lay .layui-tab-title li {
+    line-height: var(--tab-height);
+    padding: 0 var(--tab-padding-x);
+}
+
 .preview-tabs__lay .layui-tab-title li.layui-this {
     background: var(--bg-tab-active);
     color: var(--accent-hover);
@@ -377,7 +413,7 @@ input {
 .preview-tabs__title {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 3px;
     max-width: 150px;
 }
 
@@ -385,6 +421,8 @@ input {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
+    flex: 1;
 }
 
 .preview-tabs__status {
@@ -433,6 +471,7 @@ input {
     cursor: pointer;
     font-size: 16px;
     line-height: 1;
+    flex-shrink: 0;
 }
 
 .preview-tabs__close:hover {

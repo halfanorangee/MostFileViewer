@@ -909,6 +909,7 @@ onBeforeUnmount(() => {
     min-height: 0;
     overflow: auto;
     position: relative;
+    background: var(--excel-grid-bg);
 }
 
 .excel-viewer__virtual-sheet {
@@ -916,6 +917,7 @@ onBeforeUnmount(() => {
     min-width: 100%;
     min-height: 100%;
     white-space: nowrap;
+    background: var(--excel-grid-bg);
 }
 
 .excel-viewer__corner {
@@ -923,8 +925,8 @@ onBeforeUnmount(() => {
     top: 0;
     left: 0;
     z-index: 4;
-    background: var(--bg-header);
-    border: 1px solid var(--border-cell);
+    background: var(--excel-header-bg);
+    border: 1px solid var(--excel-grid-border);
 }
 
 .excel-viewer__col-header,
@@ -932,11 +934,11 @@ onBeforeUnmount(() => {
     position: absolute;
     box-sizing: border-box;
     user-select: none;
-    background: var(--bg-header);
-    border: 1px solid var(--border-cell);
+    background: var(--excel-header-bg);
+    border: 1px solid var(--excel-grid-border);
     padding: 0 8px;
     font-weight: 600;
-    color: var(--text-tertiary);
+    color: var(--excel-header-text);
     text-align: center;
     overflow: hidden;
     z-index: 2;
@@ -980,9 +982,10 @@ onBeforeUnmount(() => {
 .excel-viewer__cell {
     position: absolute;
     box-sizing: border-box;
-    border: 1px solid var(--border-cell);
+    border: 1px solid var(--excel-grid-border);
     padding: 4px 8px;
-    color: var(--text-primary);
+    background: var(--excel-grid-bg);
+    color: var(--excel-grid-text);
     line-height: 1.4;
     overflow: hidden;
     text-overflow: ellipsis;

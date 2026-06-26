@@ -2,8 +2,7 @@
  * MostFileViewer 主题变量定义
  *
  * 所有 UI 颜色集中在此文件管理，组件中通过 var(--token) 引用。
- * 当前阶段仅定义浅色主题（:root），为未来暗色主题预留
- * [data-theme="dark"] 覆写入口。
+ * 浅色主题定义在 :root 中，暗色主题通过 [data-theme="dark"] 覆写。
  */
 
 :root {
@@ -154,9 +153,24 @@
     --cm-search-label-checkbox-text: var(--text-secondary);
 
     /* ================================================================
-     * Excel 边框默认色（composables 中使用）
+     * Excel 表格网格固定配色（composables 与组件中使用）
+     *
+     * 这些变量描述的是 Excel 文档内容本身（白底表格），属于文档观感
+     * 而非应用 UI。因此在暗色主题中不覆写，始终保持白底深字，
+     * 避免切换暗色模式后表格白底变黑、文字变浅等问题。
      * ================================================================ */
-    --excel-border-default: var(--text-primary);
+    --excel-grid-bg: #ffffff;        /* 单元格 / 表格底色 */
+    --excel-grid-text: #1f2937;      /* 单元格默认文字 */
+    --excel-grid-border: #d7deea;    /* 单元格边框 */
+    --excel-header-bg: #eef2f7;      /* 行列头 / 边角底色 */
+    --excel-header-text: #334155;    /* 行列头文字 */
+    --excel-border-default: #1f2937; /* 文件内未指定颜色的边框默认色（固定深色） */
+
+    /* ================================================================
+     * 布局尺寸
+     * ================================================================ */
+    --tab-height: 34px;             /* 预览 Tab 签高度（需同步覆盖 layui-tab-title 的 height 与 li 的 line-height） */
+    --tab-padding-x: 10px;          /* 预览 Tab 签左右内边距（覆盖 layui 默认 padding: 0 15px） */
 
     /* ================================================================
      * layui-vue 全局变量对齐
@@ -177,4 +191,92 @@
     --global-neutral-color-6: var(--border-strong);
     --global-neutral-color-7: #cccccc;
     --global-neutral-color-8: var(--border-input);
+}
+
+/* ================================================================
+ * 暗色主题
+ * 通过 <html data-theme="dark"> 激活，覆写 :root 中的明色变量
+ * 仅覆写有变化的变量，未列出的变量自动继承 :root 的值
+ * ================================================================ */
+[data-theme="dark"] {
+    /* ---- 文字颜色 ---- */
+    --text-primary: #e6edf3;
+    --text-heading: #f0f6fc;
+    --text-active: #ffffff;
+    --text-secondary: #c9d1d9;
+    --text-toolbar: #8b949e;
+    --text-muted: #7d8590;
+    --text-caption: #8b949e;
+    --text-disabled: #484f58;
+    --text-notice: #db6d28;
+
+    /* ---- 背景颜色 ---- */
+    --bg-app: #0d1117;
+    --bg-surface: #161b22;
+    --bg-titlebar: #161b22;
+    --bg-preview: #21262d;
+    --bg-image-viewer: #21262d;
+    --bg-dropzone: #21262d;
+    --bg-toolbar: #161b22;
+    --bg-statusbar: #161b22;
+    --bg-panel: #1c2128;
+    --bg-hover: rgba(255, 255, 255, 0.06);
+    --bg-active: rgba(56, 139, 253, 0.15);
+    --bg-header: #21262d;
+    --bg-active-line: rgba(255, 255, 255, 0.04);
+    --bg-active-line-gutter: rgba(255, 255, 255, 0.04);
+
+    /* ---- 边框颜色 ---- */
+    --border-default: #30363d;
+    --border-strong: #3d444d;
+    --border-subtle: #21262d;
+    --border-cell: #30363d;
+    --border-gutter: #21262d;
+    --border-input: #3d444d;
+    --border-dashed: #3d444d;
+    --border-toolbar: rgba(139, 148, 158, 0.28);
+    --border-toolbar-pdf: rgba(139, 148, 158, 0.35);
+    --border-toolbar-image: rgba(230, 237, 243, 0.1);
+
+    /* ---- 主题色（蓝色系，暗色下提亮） ---- */
+    --accent-primary-rgb: 56, 139, 253;
+    --accent-hover: #58a6ff;
+    --accent-active: #1f6feb;
+    --accent-deep: #79c0ff;
+
+    /* ---- 状态色 ---- */
+    --status-error: #f85149;
+    --status-error-text: #ff7b72;
+    --color-danger: #f85149;
+    --status-warning: #d29922;
+    --status-info-rgb: 56, 139, 253;
+    --status-search-match-bg: #4d3a1a;
+    --status-search-match-border: #d29922;
+    --status-search-selected-bg: rgba(56, 139, 253, 0.2);
+
+    /* ---- 交互态透明色 ---- */
+    --hover-overlay: rgba(255, 255, 255, 0.06);
+
+    /* ---- 阴影（暗色下加深） ---- */
+    --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.4);
+    --shadow-page: 0 18px 40px rgba(0, 0, 0, 0.5);
+
+    /* ---- 工具栏半透明背景 ---- */
+    --bg-toolbar-ppt: rgba(22, 27, 34, 0.86);
+    --bg-toolbar-pdf: rgba(22, 27, 34, 0.9);
+    --bg-toolbar-image: rgba(22, 27, 34, 0.92);
+
+    /* ---- 渐变背景 ---- */
+    --bg-word-preview:
+        radial-gradient(
+            circle at top,
+            rgba(255, 255, 255, 0.04),
+            transparent 32%
+        ),
+        var(--bg-preview);
+
+    /* ---- layui-vue 中性色对齐 ---- */
+    --global-neutral-color-4: #30363d;
+    --global-neutral-color-5: #3d444d;
+    --global-neutral-color-7: #484f58;
 }

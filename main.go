@@ -35,7 +35,7 @@ func main() {
 		},
 	})
 
-	win := createMainWindow(app)
+	win := createMainWindow(app, "light")
 	registerWindowHandlers(win, appInstance)
 
 	err := app.Run()
@@ -44,14 +44,22 @@ func main() {
 	}
 }
 
-// createMainWindow 创建主窗口（复用逻辑）
-func createMainWindow(app *application.App) *application.WebviewWindow {
+// createMainWindow 创建主窗口（复用逻辑），backgroundTheme 指定初始背景色主题
+// 由于后端无法读取前端 localStorage，新窗口初始以明色背景创建。
+// 前端 index.html 内联脚本会在 webview 渲染前设置正确主题，
+// SetWindowBackground 在前端初始化后调用以校正窗口原生背景色。
+func createMainWindow(app *application.App, backgroundTheme string) *application.WebviewWindow {
+	rgb := themeBackgrounds[backgroundTheme]
+	if rgb == ([3]uint8{}) {
+		rgb = [3]uint8{243, 246, 251} // 默认明色
+	}
+
 	return app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:            "MostFileViewer",
 		Width:            1024,
 		Height:           768,
 		Frameless:        true,
-		BackgroundColour: application.NewRGB(243, 246, 251),
+		BackgroundColour: application.NewRGB(rgb[0], rgb[1], rgb[2]),
 		URL:              "/",
 		EnableFileDrop:   true,
 	})

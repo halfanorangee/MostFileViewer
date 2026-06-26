@@ -32,10 +32,10 @@
                     <p class="hero__dropzone-text">拖动到此处打开</p>
                 </div>
                 <div class="hero__actions">
-                    <lay-button type="primary" @click="handleSelectFile">
+                    <lay-button class="hero__select-file-btn" @click="handleSelectFile">
                         选择文件
                     </lay-button>
-                    <lay-button @click="handleSelectFolder">
+                    <lay-button type="primary" @click="handleSelectFolder">
                         选择文件夹
                     </lay-button>
                     <p v-if="globalError" class="hero__error">
@@ -96,6 +96,7 @@ import TitleBar from "./components/TitleBar.vue";
 import FileTree from "./components/FileTree.vue";
 import PreviewTabs from "./components/PreviewTabs.vue";
 import { App } from "../bindings/MostFileViewer";
+import { useTheme } from "./composables/useTheme";
 
 const selectedFolder = ref("");
 const treeData = ref([]);
@@ -107,6 +108,9 @@ const previewTabs = ref(null);
 const globalError = ref("");
 let removeResizeListeners = null;
 let removeFilesDroppedListener = null;
+let removeThemeChangeListener = null;
+
+const { applyRemoteTheme } = useTheme();
 
 // ============================================================================
 // 多窗口去重与路径登记
@@ -225,6 +229,12 @@ onMounted(() => {
         "files-dropped",
         handleFilesDropped,
     );
+
+    // 监听后端主题广播（多窗口同步备通道）
+    // 收到事件时仅更新 ref 和 DOM，不回写 localStorage，避免循环触发
+    removeThemeChangeListener = Events.On("theme-changed", (event) => {
+        applyRemoteTheme(event.data);
+    });
 });
 
 onBeforeUnmount(() => {
@@ -232,6 +242,7 @@ onBeforeUnmount(() => {
     stopAutoSave();
     window.removeEventListener("keydown", handleGlobalShortcut);
     removeFilesDroppedListener?.();
+    removeThemeChangeListener?.();
 });
 
 async function handleSelectFile() {
