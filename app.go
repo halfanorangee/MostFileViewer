@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -34,8 +36,12 @@ type windowState struct {
 }
 
 type App struct {
-	states     sync.Map // windowID(uint) → *windowState
-	pathOwners sync.Map // canonicalPath(string) → windowID(uint)
+	states          sync.Map // windowID(uint) → *windowState
+	pathOwners      sync.Map // canonicalPath(string) → windowID(uint)
+	sessionMu       sync.Mutex
+	restoreSessions map[uint]*WindowSession
+	windowSessions  map[uint]WindowSession
+	activeWindows   map[uint]struct{}
 }
 
 type FileTreeNode struct {
@@ -63,10 +69,34 @@ type FileChunk struct {
 	Size   int    `json:"size"`
 }
 
+type SessionTab struct {
+	Path string `json:"path"`
+}
+
+type WindowSession struct {
+	HasSession    bool         `json:"hasSession,omitempty"`
+	Mode          string       `json:"mode"`
+	RootPath      string       `json:"rootPath"`
+	OpenTabs      []SessionTab `json:"openTabs"`
+	ActivePath    string       `json:"activePath"`
+	SidebarOpen   bool         `json:"sidebarOpen"`
+	LeftPaneWidth int          `json:"leftPaneWidth"`
+}
+
+type AppSession struct {
+	Version   int             `json:"version"`
+	Windows   []WindowSession `json:"windows"`
+	UpdatedAt string          `json:"updatedAt"`
+}
+
 var revealPathInFileManager = openInFileManager
 
 func NewApp() *App {
-	return &App{}
+	return &App{
+		restoreSessions: make(map[uint]*WindowSession),
+		windowSessions:  make(map[uint]WindowSession),
+		activeWindows:   make(map[uint]struct{}),
+	}
 }
 
 // windowIDFromCtx 从 context 提取窗口 ID
@@ -878,7 +908,375 @@ func (a *App) NewWindow() {
 	// 并通过 SetWindowBackground 校正背景色
 	win := createMainWindow(app, "light")
 	registerWindowHandlers(win, a)
+	a.registerWindow(win.ID())
 	win.Show()
+}
+
+func (a *App) registerWindow(windowID uint) {
+	if windowID == 0 {
+		return
+	}
+	a.sessionMu.Lock()
+	defer a.sessionMu.Unlock()
+	a.activeWindows[windowID] = struct{}{}
+}
+
+func (a *App) handleWindowClosing(windowID uint) error {
+	if windowID == 0 {
+		return nil
+	}
+
+	a.sessionMu.Lock()
+	defer a.sessionMu.Unlock()
+
+	if _, ok := a.activeWindows[windowID]; !ok {
+		delete(a.restoreSessions, windowID)
+		delete(a.windowSessions, windowID)
+		return writeAppSession(a.snapshotAppSessionLocked())
+	}
+
+	isLastWindow := len(a.activeWindows) <= 1
+	if isLastWindow {
+		lastSession, hasLastSession := a.windowSessions[windowID]
+		for id := range a.restoreSessions {
+			if id != windowID {
+				delete(a.restoreSessions, id)
+			}
+		}
+		for id := range a.windowSessions {
+			if id != windowID {
+				delete(a.windowSessions, id)
+			}
+		}
+		if hasLastSession && sessionHasContent(lastSession) {
+			a.windowSessions[windowID] = lastSession
+		} else {
+			delete(a.windowSessions, windowID)
+		}
+	} else {
+		delete(a.restoreSessions, windowID)
+		delete(a.windowSessions, windowID)
+	}
+
+	delete(a.activeWindows, windowID)
+	return writeAppSession(a.snapshotAppSessionLocked())
+}
+
+func (a *App) loadStartupSession() []WindowSession {
+	session, err := readAppSession()
+	if err != nil {
+		return nil
+	}
+	cleaned, changed := sanitizeAppSession(session)
+	if changed {
+		_ = writeAppSession(cleaned)
+	}
+	return cleaned.Windows
+}
+
+func (a *App) assignRestoreSession(windowID uint, session WindowSession) {
+	if windowID == 0 {
+		return
+	}
+	a.sessionMu.Lock()
+	defer a.sessionMu.Unlock()
+	copied := normalizeWindowSession(session)
+	restoreSession := copied
+	restoreSession.HasSession = true
+	a.restoreSessions[windowID] = &restoreSession
+	a.windowSessions[windowID] = copied
+}
+
+func (a *App) ConsumeRestoreSession(ctx context.Context) (WindowSession, error) {
+	id := windowIDFromCtx(ctx)
+	if id == 0 {
+		return WindowSession{}, errors.New("无法获取当前窗口")
+	}
+
+	a.sessionMu.Lock()
+	session, ok := a.restoreSessions[id]
+	if ok {
+		delete(a.restoreSessions, id)
+	}
+	a.sessionMu.Unlock()
+
+	if !ok || session == nil || !sessionHasContent(*session) {
+		return WindowSession{}, nil
+	}
+	session.HasSession = true
+	return *session, nil
+}
+
+func (a *App) SaveWindowSession(ctx context.Context, session WindowSession) error {
+	id := windowIDFromCtx(ctx)
+	if id == 0 {
+		return errors.New("无法获取当前窗口")
+	}
+
+	cleaned := normalizeWindowSession(session)
+	cleaned, _ = sanitizeWindowSession(cleaned)
+
+	a.sessionMu.Lock()
+	defer a.sessionMu.Unlock()
+	if sessionHasContent(cleaned) {
+		a.windowSessions[id] = cleaned
+	} else {
+		delete(a.windowSessions, id)
+	}
+	appSession := a.snapshotAppSessionLocked()
+
+	return writeAppSession(appSession)
+}
+
+func (a *App) ClearWindowSession(ctx context.Context) error {
+	id := windowIDFromCtx(ctx)
+	if id == 0 {
+		return errors.New("无法获取当前窗口")
+	}
+
+	a.sessionMu.Lock()
+	defer a.sessionMu.Unlock()
+	delete(a.restoreSessions, id)
+	delete(a.windowSessions, id)
+	appSession := a.snapshotAppSessionLocked()
+
+	return writeAppSession(appSession)
+}
+
+func readAppSession() (AppSession, error) {
+	path, err := appSessionPath()
+	if err != nil {
+		return AppSession{Version: 1}, err
+	}
+
+	data, err := os.ReadFile(path)
+	if isPathNotExist(err) {
+		return AppSession{Version: 1}, nil
+	}
+	if err != nil {
+		return AppSession{Version: 1}, err
+	}
+
+	var session AppSession
+	if err := json.Unmarshal(data, &session); err != nil {
+		return AppSession{Version: 1}, err
+	}
+	if session.Version == 0 {
+		session.Version = 1
+	}
+	return session, nil
+}
+
+func writeAppSession(session AppSession) error {
+	path, err := appSessionPath()
+	if err != nil {
+		return err
+	}
+	if len(session.Windows) == 0 {
+		if err := os.Remove(path); err != nil && !isPathNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+
+	session.Version = 1
+	session.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	data, err := json.MarshalIndent(session, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0600)
+}
+
+func isPathNotExist(err error) bool {
+	return err != nil && (errors.Is(err, os.ErrNotExist) || os.IsNotExist(err))
+}
+
+func appSessionPath() (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "MostFileViewer", "session.json"), nil
+}
+
+func sanitizeAppSession(session AppSession) (AppSession, bool) {
+	cleaned := AppSession{
+		Version:   1,
+		Windows:   make([]WindowSession, 0, len(session.Windows)),
+		UpdatedAt: session.UpdatedAt,
+	}
+	changed := session.Version != 1
+
+	for _, windowSession := range session.Windows {
+		cleanWindow, windowChanged := sanitizeWindowSession(windowSession)
+		if windowChanged {
+			changed = true
+		}
+		if sessionHasContent(cleanWindow) {
+			cleaned.Windows = append(cleaned.Windows, cleanWindow)
+		} else {
+			changed = true
+		}
+	}
+
+	if len(cleaned.Windows) != len(session.Windows) {
+		changed = true
+	}
+	return cleaned, changed
+}
+
+func sanitizeWindowSession(session WindowSession) (WindowSession, bool) {
+	normalized := normalizeWindowSession(session)
+	changed := !windowSessionsEqual(session, normalized)
+
+	if normalized.Mode == "folder" {
+		info, err := os.Stat(normalized.RootPath)
+		if err != nil || !info.IsDir() {
+			return WindowSession{}, true
+		}
+	} else if normalized.Mode == "file" {
+		if normalized.RootPath != "" {
+			if info, err := os.Stat(normalized.RootPath); err != nil || !info.IsDir() {
+				normalized.RootPath = ""
+				changed = true
+			}
+		}
+	}
+
+	tabs := make([]SessionTab, 0, len(normalized.OpenTabs))
+	seen := make(map[string]struct{}, len(normalized.OpenTabs))
+	activeExists := false
+	for _, tab := range normalized.OpenTabs {
+		cleanPath, err := filepath.Abs(tab.Path)
+		if err != nil {
+			changed = true
+			continue
+		}
+		info, err := os.Stat(cleanPath)
+		if err != nil || info.IsDir() {
+			changed = true
+			continue
+		}
+		key, err := canonicalizePath(cleanPath)
+		if err != nil {
+			changed = true
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			changed = true
+			continue
+		}
+		seen[key] = struct{}{}
+		tabs = append(tabs, SessionTab{Path: cleanPath})
+		if cleanPath == normalized.ActivePath {
+			activeExists = true
+		}
+	}
+	if len(tabs) != len(normalized.OpenTabs) {
+		changed = true
+	}
+	normalized.OpenTabs = tabs
+
+	if normalized.ActivePath != "" && !activeExists {
+		if len(normalized.OpenTabs) > 0 {
+			normalized.ActivePath = normalized.OpenTabs[0].Path
+		} else {
+			normalized.ActivePath = ""
+		}
+		changed = true
+	}
+
+	if normalized.Mode == "file" && len(normalized.OpenTabs) == 0 {
+		return WindowSession{}, true
+	}
+	if normalized.Mode == "folder" && normalized.RootPath == "" && len(normalized.OpenTabs) == 0 {
+		return WindowSession{}, true
+	}
+	return normalized, changed
+}
+
+func normalizeWindowSession(session WindowSession) WindowSession {
+	normalized := session
+	normalized.HasSession = false
+	normalized.Mode = strings.ToLower(strings.TrimSpace(normalized.Mode))
+	if normalized.Mode != "folder" && normalized.Mode != "file" {
+		if strings.TrimSpace(normalized.RootPath) != "" {
+			normalized.Mode = "folder"
+		} else {
+			normalized.Mode = "file"
+		}
+	}
+	if normalized.LeftPaneWidth <= 0 {
+		normalized.LeftPaneWidth = 320
+	}
+	if root := strings.TrimSpace(normalized.RootPath); root != "" {
+		if cleanRoot, err := filepath.Abs(root); err == nil {
+			normalized.RootPath = cleanRoot
+		}
+	}
+	if active := strings.TrimSpace(normalized.ActivePath); active != "" {
+		if cleanActive, err := filepath.Abs(active); err == nil {
+			normalized.ActivePath = cleanActive
+		}
+	}
+
+	tabs := make([]SessionTab, 0, len(normalized.OpenTabs))
+	for _, tab := range normalized.OpenTabs {
+		if path := strings.TrimSpace(tab.Path); path != "" {
+			if cleanPath, err := filepath.Abs(path); err == nil {
+				tabs = append(tabs, SessionTab{Path: cleanPath})
+			}
+		}
+	}
+	normalized.OpenTabs = tabs
+	return normalized
+}
+
+func sessionHasContent(session WindowSession) bool {
+	return (session.Mode == "folder" && session.RootPath != "") || len(session.OpenTabs) > 0
+}
+
+func windowSessionsEqual(left, right WindowSession) bool {
+	if left.Mode != right.Mode ||
+		left.RootPath != right.RootPath ||
+		left.ActivePath != right.ActivePath ||
+		left.SidebarOpen != right.SidebarOpen ||
+		left.LeftPaneWidth != right.LeftPaneWidth ||
+		len(left.OpenTabs) != len(right.OpenTabs) {
+		return false
+	}
+	for i := range left.OpenTabs {
+		if left.OpenTabs[i].Path != right.OpenTabs[i].Path {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *App) snapshotAppSessionLocked() AppSession {
+	ids := make([]int, 0, len(a.windowSessions))
+	for id := range a.windowSessions {
+		ids = append(ids, int(id))
+	}
+	sort.Ints(ids)
+
+	windows := make([]WindowSession, 0, len(ids))
+	for _, id := range ids {
+		session := normalizeWindowSession(a.windowSessions[uint(id)])
+		if sessionHasContent(session) {
+			windows = append(windows, session)
+		}
+	}
+
+	return AppSession{
+		Version:   1,
+		Windows:   windows,
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
 }
 
 // RegisterOpenPath 注册当前窗口打开的文件/文件夹路径
@@ -898,6 +1296,11 @@ func (a *App) RegisterOpenPath(ctx context.Context, path string) error {
 		state.openPaths = make(map[string]struct{})
 	}
 	state.openPaths[canonicalPath] = struct{}{}
+	if cleanPath, absErr := filepath.Abs(path); absErr == nil {
+		if info, statErr := os.Stat(cleanPath); statErr == nil && !info.IsDir() {
+			allowFile(state, cleanPath)
+		}
+	}
 	state.mu.Unlock()
 
 	a.pathOwners.Store(canonicalPath, id)

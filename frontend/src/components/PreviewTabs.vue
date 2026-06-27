@@ -14,11 +14,8 @@
                 >
                     <div
                         v-if="tab.status === 'loading'"
-                        class="preview-tabs__state"
-                    >
-                        <lay-loading />
-                        <p>正在加载 {{ tab.name }}</p>
-                    </div>
+                        class="preview-tabs__content preview-tabs__content--loading"
+                    ></div>
 
                     <div
                         v-else-if="tab.status === 'error'"
@@ -177,7 +174,11 @@ function renderTabTitle(tab) {
     let statusTitle = "";
     let statusClass = "";
 
-    if (tab.saving) {
+    if (tab.status === "loading") {
+        statusIcon = "";
+        statusTitle = "正在加载...";
+        statusClass = "preview-tabs__status preview-tabs__status--loading";
+    } else if (tab.saving) {
         statusIcon = "↻"; // 旋转箭头，表示保存中
         statusTitle = "保存中...";
         statusClass = "preview-tabs__status preview-tabs__status--saving";
@@ -194,7 +195,7 @@ function renderTabTitle(tab) {
     const titleChildren = [];
 
     // 添加状态图标（如果有）
-    if (statusIcon) {
+    if (statusClass) {
         titleChildren.push(
             h(
                 "span",

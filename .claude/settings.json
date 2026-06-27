@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(npm --prefix \"frontend\" run build:dev)"
+      "PowerShell(npm --prefix \"frontend\" run build:dev)",
+      "Bash(git -C \"d:\\\\projects\\\\personal\\\\go\\\\MostFileViewer\\\\.claude\\\\worktrees\\\\agent-a1eb3027f31a9e6b0\" log --oneline -30)",
+      "PowerShell(gofmt -w \"app.go\" \"main.go\" \"app_session_test.go\")"
     ]
   }
 }

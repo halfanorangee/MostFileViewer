@@ -35,8 +35,21 @@ func main() {
 		},
 	})
 
+	startupSessions := appInstance.loadStartupSession()
 	win := createMainWindow(app, "light")
 	registerWindowHandlers(win, appInstance)
+	appInstance.registerWindow(win.ID())
+	if len(startupSessions) > 0 {
+		appInstance.assignRestoreSession(win.ID(), startupSessions[0])
+	}
+
+	for index := 1; index < len(startupSessions); index++ {
+		session := startupSessions[index]
+		extraWin := createMainWindow(app, "light")
+		registerWindowHandlers(extraWin, appInstance)
+		appInstance.registerWindow(extraWin.ID())
+		appInstance.assignRestoreSession(extraWin.ID(), session)
+	}
 
 	err := app.Run()
 	if err != nil {
@@ -93,6 +106,9 @@ func registerWindowHandlers(win *application.WebviewWindow, appInstance *App) {
 
 	// 窗口关闭时清理状态，避免内存泄漏和去重误判
 	win.OnWindowEvent(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		if err := appInstance.handleWindowClosing(win.ID()); err != nil {
+			log.Printf("保存窗口会话失败: %v", err)
+		}
 		appInstance.cleanupWindowState(win.ID())
 	})
 }

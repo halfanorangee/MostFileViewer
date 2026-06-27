@@ -109,6 +109,8 @@ const globalError = ref("");
 let removeResizeListeners = null;
 let removeFilesDroppedListener = null;
 let removeThemeChangeListener = null;
+let restoringSession = false;
+let persistSessionTimer = null;
 
 const { applyRemoteTheme } = useTheme();
 
@@ -235,15 +237,139 @@ onMounted(() => {
     removeThemeChangeListener = Events.On("theme-changed", (event) => {
         applyRemoteTheme(event.data);
     });
+
+    void restoreWorkspaceSession();
 });
 
 onBeforeUnmount(() => {
     stopResize();
     stopAutoSave();
+    if (persistSessionTimer) {
+        clearTimeout(persistSessionTimer);
+        persistSessionTimer = null;
+    }
     window.removeEventListener("keydown", handleGlobalShortcut);
     removeFilesDroppedListener?.();
     removeThemeChangeListener?.();
 });
+
+async function restoreWorkspaceSession() {
+    restoringSession = true;
+    try {
+        const session = await App.ConsumeRestoreSession();
+        if (!session?.hasSession) {
+            restoringSession = false;
+            return;
+        }
+
+        if (Number.isFinite(session.leftPaneWidth) && session.leftPaneWidth > 0) {
+            leftPaneWidth.value = session.leftPaneWidth;
+        }
+
+        if (session.mode === "folder" && session.rootPath) {
+            const tree = await App.LoadFolderTree(session.rootPath);
+            selectedFolder.value = session.rootPath;
+            treeData.value = tree;
+            sidebarOpen.value = session.sidebarOpen !== false;
+            openTabs.value = [];
+            activeTabPath.value = "";
+            await registerOpenPath(session.rootPath);
+        } else if (session.openTabs?.length) {
+            const firstPath = session.openTabs[0].path;
+            selectedFolder.value = getParentPath(firstPath);
+            treeData.value = [
+                {
+                    name: getPathName(firstPath),
+                    path: firstPath,
+                    type: "file",
+                    extension: getPathExtension(firstPath),
+                },
+            ];
+            sidebarOpen.value = false;
+            openTabs.value = [];
+            activeTabPath.value = "";
+        }
+
+        for (const tab of session.openTabs || []) {
+            if (!tab?.path) {
+                continue;
+            }
+            await openFileNode({
+                name: getPathName(tab.path),
+                path: tab.path,
+                type: "file",
+                extension: getPathExtension(tab.path),
+            });
+        }
+
+        if (session.activePath && openTabs.value.some((tab) => tab.path === session.activePath)) {
+            activeTabPath.value = session.activePath;
+        }
+
+        restoringSession = false;
+        if (!selectedFolder.value && openTabs.value.length === 0) {
+            await clearWorkspaceSession();
+            return;
+        }
+        await persistWorkspaceSessionNow();
+    } catch (error) {
+        restoringSession = false;
+        await clearWorkspaceSession();
+    } finally {
+        restoringSession = false;
+    }
+}
+
+function schedulePersistWorkspaceSession() {
+    if (restoringSession) {
+        return;
+    }
+    if (persistSessionTimer) {
+        clearTimeout(persistSessionTimer);
+    }
+    persistSessionTimer = setTimeout(() => {
+        persistSessionTimer = null;
+        void persistWorkspaceSessionNow();
+    }, 250);
+}
+
+async function persistWorkspaceSessionNow() {
+    if (restoringSession) {
+        return;
+    }
+
+    const tabs = openTabs.value
+        .filter((tab) => tab?.path && tab.status !== "error")
+        .map((tab) => ({ path: tab.path }));
+
+    if (!selectedFolder.value && tabs.length === 0) {
+        await clearWorkspaceSession();
+        return;
+    }
+
+    const session = {
+        mode: isActualFolderPreview.value ? "folder" : "file",
+        rootPath: selectedFolder.value || "",
+        openTabs: tabs,
+        activePath: activeTabPath.value || "",
+        sidebarOpen: sidebarOpen.value,
+        leftPaneWidth: leftPaneWidth.value,
+    };
+
+    try {
+        await App.SaveWindowSession(session);
+    } catch (error) {
+        // Session persistence is best-effort.
+    }
+}
+
+async function clearWorkspaceSession() {
+    try {
+        await App.ClearWindowSession();
+    } catch (error) {
+        // Session persistence is best-effort.
+    }
+}
 
 async function handleSelectFile() {
     globalError.value = "";
@@ -296,6 +422,7 @@ async function openFileInWorkspace(filePath) {
     openTabs.value = [];
     activeTabPath.value = "";
     await openFileNode(fileNode);
+    schedulePersistWorkspaceSession();
 }
 
 // 在已有工作区中直接添加新tab（不清除现有tabs）
@@ -317,6 +444,7 @@ async function addFileToWorkspace(filePath) {
 
     // 直接打开新tab
     await openFileNode(fileNode);
+    schedulePersistWorkspaceSession();
 }
 
 function getParentPath(path) {
@@ -405,6 +533,7 @@ async function handleOpenFolder(folderPath) {
 
         // 注册文件夹路径
         await registerOpenPath(folderPath);
+        schedulePersistWorkspaceSession();
     } catch (error) {
         // silently ignore
     }
@@ -453,6 +582,7 @@ async function openFileNode(node) {
     activeTabPath.value = tab.path;
 
     try {
+        await registerOpenPath(node.path);
         const content = await App.ReadFile(node.path);
         const previewType = getPreviewType(content.extension || node.extension);
         const isCodePreview = previewType === "code";
@@ -476,12 +606,13 @@ async function openFileNode(node) {
         });
 
         // 成功打开文件后登记该 tab 路径
-        await registerOpenPath(node.path);
+        schedulePersistWorkspaceSession();
     } catch (error) {
         updateTab(node.path, {
             status: "error",
             error: normalizeError(error, "读取文件失败"),
         });
+        schedulePersistWorkspaceSession();
     }
 }
 
@@ -518,6 +649,7 @@ async function handleSelectFolder() {
 
         // 注册文件夹路径
         await registerOpenPath(folder);
+        schedulePersistWorkspaceSession();
     } catch (error) {
         // silently ignore
     }
@@ -549,6 +681,7 @@ async function handleShowInFileManager(node) {
 
 function handleChangeTab(path) {
     activeTabPath.value = path;
+    schedulePersistWorkspaceSession();
 }
 
 async function handleCloseTab(path) {
@@ -583,16 +716,19 @@ async function handleCloseTab(path) {
         selectedFolder.value = "";
         treeData.value = [];
         activeTabPath.value = "";
+        void clearWorkspaceSession();
         return;
     }
 
     if (activeTabPath.value !== path) {
+        schedulePersistWorkspaceSession();
         return;
     }
 
     const nextActive =
         nextTabs[currentIndex] || nextTabs[currentIndex - 1] || null;
     activeTabPath.value = nextActive ? nextActive.path : "";
+    schedulePersistWorkspaceSession();
 }
 
 function handlePreviewError(path, error) {
@@ -771,12 +907,14 @@ function toggleSidebar() {
     // 单个文件模式下不允许打开侧边栏
     if (!isActualFolderPreview.value) {
         sidebarOpen.value = false;
+        schedulePersistWorkspaceSession();
         return;
     }
     sidebarOpen.value = !sidebarOpen.value;
     if (!sidebarOpen.value) {
         stopResize();
     }
+    schedulePersistWorkspaceSession();
 }
 
 function releaseTabPayload(path) {
@@ -947,6 +1085,7 @@ function startResize(event) {
 
     const onMouseUp = () => {
         stopResize();
+        schedulePersistWorkspaceSession();
     };
 
     document.addEventListener("mousemove", onMouseMove);

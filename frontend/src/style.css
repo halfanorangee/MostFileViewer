@@ -365,6 +365,10 @@ input {
     overflow: hidden;
 }
 
+.preview-tabs__content--loading {
+    background: var(--bg-surface);
+}
+
 .code-preview {
     flex: 1;
     min-width: 0;
@@ -469,6 +473,15 @@ input {
     font-size: 10px;
     line-height: 1;
     flex-shrink: 0;
+}
+
+.preview-tabs__status--loading {
+    width: 10px;
+    height: 10px;
+    border: 2px solid var(--border-subtle);
+    border-top-color: var(--status-info);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
 }
 
 .preview-tabs__status--dirty {
