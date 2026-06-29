@@ -43,7 +43,12 @@ import { onBeforeUnmount, ref, watch } from "vue";
 import { keymap } from "@codemirror/view";
 import { basicSetup, EditorView } from "codemirror";
 import { EditorState, Compartment } from "@codemirror/state";
-import { StreamLanguage } from "@codemirror/language";
+import {
+    HighlightStyle,
+    StreamLanguage,
+    syntaxHighlighting,
+} from "@codemirror/language";
+import { tags } from "@lezer/highlight";
 import {
     search,
     searchKeymap,
@@ -187,6 +192,69 @@ let lastContentVersion = null;
 let lastExtension = "";
 let lastName = "";
 
+const codeHighlightStyle = HighlightStyle.define([
+    {
+        tag: tags.comment,
+        color: "var(--cm-syntax-comment)",
+        fontStyle: "italic",
+    },
+    {
+        tag: [tags.keyword, tags.operatorKeyword, tags.modifier],
+        color: "var(--cm-syntax-keyword)",
+    },
+    {
+        tag: [tags.string, tags.character, tags.attributeValue],
+        color: "var(--cm-syntax-string)",
+    },
+    {
+        tag: [tags.number, tags.bool, tags.null, tags.atom],
+        color: "var(--cm-syntax-constant)",
+    },
+    {
+        tag: [tags.variableName, tags.propertyName, tags.attributeName],
+        color: "var(--cm-syntax-variable)",
+    },
+    {
+        tag: [
+            tags.function(tags.variableName),
+            tags.function(tags.propertyName),
+            tags.labelName,
+        ],
+        color: "var(--cm-syntax-function)",
+    },
+    {
+        tag: [tags.typeName, tags.className, tags.namespace, tags.tagName],
+        color: "var(--cm-syntax-type)",
+    },
+    {
+        tag: [tags.operator, tags.punctuation, tags.bracket],
+        color: "var(--cm-syntax-operator)",
+    },
+    {
+        tag: [tags.regexp, tags.escape, tags.special(tags.string)],
+        color: "var(--cm-syntax-special)",
+    },
+    {
+        tag: [tags.meta, tags.annotation, tags.processingInstruction],
+        color: "var(--cm-syntax-meta)",
+    },
+    {
+        tag: [tags.heading, tags.strong],
+        color: "var(--cm-syntax-heading)",
+        fontWeight: "600",
+    },
+    {
+        tag: tags.link,
+        color: "var(--cm-syntax-link)",
+        textDecoration: "underline",
+    },
+    {
+        tag: tags.invalid,
+        color: "var(--cm-syntax-invalid)",
+        textDecoration: "underline wavy var(--cm-syntax-invalid)",
+    },
+]);
+
 const LARGE_CONTENT_CHARS = 512 * 1024;
 const CONTENT_CHUNK_CHARS = 256 * 1024;
 
@@ -227,6 +295,7 @@ watch(
                         chineseSearchPhrases,
                         search({ top: false }),
                         highlightSelectionMatches(),
+                        syntaxHighlighting(codeHighlightStyle),
                         keymap.of([
                             ...searchKeymap,
                             {
