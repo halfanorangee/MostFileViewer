@@ -1,6 +1,41 @@
 <template>
-    <div>
-        <div ref="host" class="code-preview-wrapper"></div>
+    <div class="code-preview-root">
+        <div
+            ref="previewBody"
+            class="code-preview-body"
+            :class="{ 'code-preview-body--resizing': webPreviewResizing }"
+        >
+            <div ref="host" class="code-preview-wrapper"></div>
+            <div
+                v-if="webPreviewVisible && isStandaloneWebPreviewFile"
+                class="code-preview-resizer"
+                role="separator"
+                aria-label="调整网页预览宽度"
+                aria-orientation="vertical"
+                :aria-valuenow="Math.round(webPreviewWidthPercent)"
+                aria-valuemin="20"
+                aria-valuemax="80"
+                @pointerdown="handleWebPreviewResizeStart"
+            ></div>
+            <section
+                v-if="webPreviewVisible && isStandaloneWebPreviewFile"
+                class="code-preview-web-panel"
+                :style="webPreviewPanelStyle"
+                aria-label="网页预览"
+            >
+                <div class="code-preview-web-panel__header">
+                    <span>网页预览</span>
+                    <span class="code-preview-web-panel__name">{{ name }}</span>
+                </div>
+                <iframe
+                    class="code-preview-web-panel__frame"
+                    :srcdoc="webPreviewContent"
+                    :title="name ? `${name} 预览` : '网页预览'"
+                    sandbox="allow-scripts"
+                    referrerpolicy="no-referrer"
+                ></iframe>
+            </section>
+        </div>
         <div class="code-preview-status">
             <label class="code-preview-encoding">
                 <select
@@ -34,12 +69,34 @@
                     </option>
                 </select>
             </label>
+            <button
+                v-if="showPreviewIcon"
+                class="code-preview-action"
+                type="button"
+                :class="{ 'code-preview-action--active': webPreviewVisible }"
+                :title="previewActionTitle"
+                :aria-label="previewActionTitle"
+                :disabled="!isStandaloneWebPreviewFile || syncingDocument"
+                @click="handlePreviewClick"
+            >
+                <svg
+                    class="code-preview-action__icon"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                    focusable="false"
+                >
+                    <path
+                        d="M12 5.5c4.36 0 7.63 3.1 9.17 5.46.41.63.41 1.45 0 2.08C19.63 15.4 16.36 18.5 12 18.5s-7.63-3.1-9.17-5.46a1.9 1.9 0 0 1 0-2.08C4.37 8.6 7.64 5.5 12 5.5Zm0 1.8c-3.45 0-6.2 2.45-7.67 4.45a.42.42 0 0 0 0 .5c1.47 2 4.22 4.45 7.67 4.45s6.2-2.45 7.67-4.45a.42.42 0 0 0 0-.5C18.2 9.75 15.45 7.3 12 7.3Zm0 1.7a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm0 1.75a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Z"
+                        fill="currentColor"
+                    />
+                </svg>
+            </button>
         </div>
     </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { keymap } from "@codemirror/view";
 import { basicSetup, EditorView } from "codemirror";
 import { EditorState, Compartment } from "@codemirror/state";
@@ -167,8 +224,24 @@ const encodingOptions = [
 ];
 const selectedEncoding = ref(normalizeEncoding(props.encoding));
 const syncingDocument = ref(false);
+const showPreviewIcon = computed(() => isStandaloneWebFile(props.extension));
+const isStandaloneWebPreviewFile = showPreviewIcon;
+const webPreviewVisible = ref(false);
+const webPreviewContent = ref("");
+const webPreviewWidthPercent = ref(45);
+const webPreviewResizing = ref(false);
+const webPreviewPanelStyle = computed(() => ({
+    flexBasis: `${webPreviewWidthPercent.value}%`,
+}));
+const previewActionTitle = computed(() => {
+    if (!isStandaloneWebPreviewFile.value) {
+        return "当前文件暂不支持网页预览";
+    }
+    return webPreviewVisible.value ? "关闭网页预览" : "预览网页样式";
+});
 
 const host = ref(null);
+const previewBody = ref(null);
 const language = new Compartment();
 const editable = new Compartment();
 const chineseSearchPhrases = CMState.phrases.of({
@@ -257,6 +330,8 @@ const codeHighlightStyle = HighlightStyle.define([
 
 const LARGE_CONTENT_CHARS = 512 * 1024;
 const CONTENT_CHUNK_CHARS = 256 * 1024;
+const MIN_WEB_PREVIEW_WIDTH_PERCENT = 20;
+const MAX_WEB_PREVIEW_WIDTH_PERCENT = 80;
 
 watch(
     () => props.encoding,
@@ -268,7 +343,18 @@ watch(
 
 watch([() => props.extension, () => props.name], ([extension, name]) => {
     selectedSyntax.value = detectSyntaxKey(extension, name);
+    webPreviewVisible.value = false;
+    webPreviewContent.value = "";
 });
+
+watch(
+    () => props.contentVersion,
+    () => {
+        if (webPreviewVisible.value) {
+            webPreviewContent.value = getContent();
+        }
+    },
+);
 
 watch(
     () => props.encodingLoading,
@@ -519,6 +605,7 @@ watch(
 
 onBeforeUnmount(() => {
     documentSyncToken += 1;
+    stopWebPreviewResize();
     editor?.destroy();
     editor = null;
 });
@@ -595,6 +682,53 @@ async function replaceEditorContent(content, extension, name) {
     }
 }
 
+function handleWebPreviewResizeStart(event) {
+    if (!previewBody.value) {
+        return;
+    }
+
+    event.preventDefault();
+    webPreviewResizing.value = true;
+    window.addEventListener("pointermove", handleWebPreviewResizeMove);
+    window.addEventListener("pointerup", stopWebPreviewResize, { once: true });
+    window.addEventListener("pointercancel", stopWebPreviewResize, { once: true });
+    handleWebPreviewResizeMove(event);
+}
+
+function handleWebPreviewResizeMove(event) {
+    if (!previewBody.value) {
+        return;
+    }
+
+    const rect = previewBody.value.getBoundingClientRect();
+    if (rect.width <= 0) {
+        return;
+    }
+
+    const previewWidth = rect.right - event.clientX;
+    const nextPercent = (previewWidth / rect.width) * 100;
+    webPreviewWidthPercent.value = clamp(
+        nextPercent,
+        MIN_WEB_PREVIEW_WIDTH_PERCENT,
+        MAX_WEB_PREVIEW_WIDTH_PERCENT,
+    );
+}
+
+function stopWebPreviewResize() {
+    if (!webPreviewResizing.value) {
+        return;
+    }
+
+    webPreviewResizing.value = false;
+    window.removeEventListener("pointermove", handleWebPreviewResizeMove);
+    window.removeEventListener("pointerup", stopWebPreviewResize);
+    window.removeEventListener("pointercancel", stopWebPreviewResize);
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
 function getSafeChunkEnd(content, end) {
     if (end >= content.length) {
         return content.length;
@@ -638,6 +772,20 @@ function handleSyntaxChange(event) {
             resolveSelectedLanguage(props.extension, props.name),
         ),
     });
+}
+
+function handlePreviewClick() {
+    if (!isStandaloneWebPreviewFile.value || syncingDocument.value) {
+        return;
+    }
+
+    if (webPreviewVisible.value) {
+        webPreviewVisible.value = false;
+        return;
+    }
+
+    webPreviewContent.value = getContent();
+    webPreviewVisible.value = true;
 }
 
 defineExpose({
@@ -783,6 +931,10 @@ function detectSyntaxKey(extension, name) {
     }
 }
 
+function isStandaloneWebFile(extension) {
+    return [".html", ".htm"].includes((extension || "").toLowerCase());
+}
+
 function resolveLanguageBySyntaxKey(syntax) {
     switch (syntax) {
         case "javascript":
@@ -866,13 +1018,87 @@ function streamLanguage(mode) {
 </script>
 
 <style scoped>
-.code-preview-wrapper {
-    flex: 1;
+.code-preview-root {
+    position: relative;
+    height: 100%;
     min-width: 0;
     min-height: 0;
+}
+
+.code-preview-body {
+    display: flex;
     height: calc(100% - 30px);
+    min-width: 0;
+    min-height: 0;
+}
+
+.code-preview-body--resizing,
+.code-preview-body--resizing * {
+    cursor: col-resize !important;
+    user-select: none;
+}
+
+.code-preview-body--resizing .code-preview-web-panel__frame {
+    pointer-events: none;
+}
+
+.code-preview-wrapper {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
     overflow: hidden;
     background: var(--bg-surface);
+}
+
+.code-preview-resizer {
+    flex: 0 0 8px;
+    min-height: 0;
+    cursor: col-resize;
+    background: linear-gradient(
+        to right,
+        transparent 0,
+        var(--border-cell) 50%,
+        transparent 100%
+    );
+}
+
+.code-preview-web-panel {
+    flex: 0 0 45%;
+    min-width: 240px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-surface);
+}
+
+.code-preview-web-panel__header {
+    flex: 0 0 auto;
+    height: 34px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.code-preview-web-panel__name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.code-preview-web-panel__frame {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    border: 0;
+    background: #ffffff;
 }
 .code-preview-status {
     background: var(--bg-statusbar);
@@ -915,5 +1141,41 @@ function streamLanguage(mode) {
 .code-preview-encoding-select:disabled {
     cursor: not-allowed;
     opacity: 0.6;
+}
+
+.code-preview-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.code-preview-action:hover:not(:disabled),
+.code-preview-action--active {
+    background: var(--bg-surface);
+    color: var(--accent-primary);
+}
+
+.code-preview-action:focus-visible {
+    outline: 1px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
+.code-preview-action:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.code-preview-action__icon {
+    width: 18px;
+    height: 18px;
 }
 </style>
