@@ -1,0 +1,258 @@
+/* Markdown 预览区（.code-preview-md-body）的渲染样式。
+   原为 CodePreview.vue 的 scoped :deep() 规则，抽离为全局样式文件。
+   所有选择器均以 .code-preview-md-body 作前缀，天然限定作用域、无外泄风险。
+   代码块语法高亮 class 由 useCodeHighlight 生成，配色复用 CodeMirror 的
+   --cm-syntax-* 变量，与编辑器一致并自动联动明暗主题。 */
+
+.code-preview-md-body > *:first-child {
+    margin-top: 0;
+}
+
+.code-preview-md-body > *:last-child {
+    margin-bottom: 0;
+}
+
+.code-preview-md-body h1,
+.code-preview-md-body h2,
+.code-preview-md-body h3,
+.code-preview-md-body h4,
+.code-preview-md-body h5,
+.code-preview-md-body h6 {
+    margin: 24px 0 16px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--text-heading);
+}
+
+.code-preview-md-body h1 {
+    font-size: 1.9em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--border-default);
+}
+
+.code-preview-md-body h2 {
+    font-size: 1.5em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--border-default);
+}
+
+.code-preview-md-body h3 {
+    font-size: 1.25em;
+}
+
+.code-preview-md-body h4 {
+    font-size: 1em;
+}
+
+.code-preview-md-body h5 {
+    font-size: 0.875em;
+}
+
+.code-preview-md-body h6 {
+    font-size: 0.85em;
+    color: var(--text-muted);
+}
+
+.code-preview-md-body p {
+    margin: 0 0 16px;
+}
+
+/* 全局引入的 layui-vue index.css 含 `li{list-style:none}` reset，会清掉列表符号，
+   此处显式恢复 markdown 列表的项目符号与序号。 */
+.code-preview-md-body ul {
+    margin: 0 0 16px;
+    padding-left: 2em;
+    list-style: disc;
+}
+
+.code-preview-md-body ol {
+    margin: 0 0 16px;
+    padding-left: 2em;
+    list-style: decimal;
+}
+
+.code-preview-md-body li {
+    list-style: inherit;
+}
+
+.code-preview-md-body li {
+    margin: 4px 0;
+}
+
+.code-preview-md-body li + li {
+    margin-top: 4px;
+}
+
+.code-preview-md-body li > ul,
+.code-preview-md-body li > ol {
+    margin: 4px 0;
+}
+
+.code-preview-md-body li.task-list-item {
+    list-style: none;
+}
+
+.code-preview-md-body li.task-list-item {
+    margin-left: -1.4em;
+}
+
+.code-preview-md-body input[type="checkbox"] {
+    margin: 0 0.4em 0 0;
+    vertical-align: middle;
+}
+
+.code-preview-md-body blockquote {
+    margin: 0 0 16px;
+    padding: 0 1em;
+    color: var(--text-secondary);
+    border-left: 0.25em solid var(--accent-primary);
+}
+
+.code-preview-md-body blockquote > :last-child {
+    margin-bottom: 0;
+}
+
+.code-preview-md-body code {
+    padding: 0.2em 0.4em;
+    margin: 0;
+    font-size: 0.9em;
+    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+    background: var(--md-inline-code-bg);
+    border-radius: 4px;
+}
+
+.code-preview-md-body pre {
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    overflow: auto;
+    background: var(--md-code-block-bg);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+    line-height: 1.5;
+}
+
+.code-preview-md-body pre code {
+    display: block;
+    padding: 0;
+    font-size: 0.875em;
+    background: transparent;
+    border-radius: 0;
+    white-space: pre;
+    color: var(--cm-text);
+}
+
+.code-preview-md-body .tok-comment {
+    color: var(--cm-syntax-comment);
+    font-style: italic;
+}
+.code-preview-md-body .tok-keyword {
+    color: var(--cm-syntax-keyword);
+}
+.code-preview-md-body .tok-string {
+    color: var(--cm-syntax-string);
+}
+.code-preview-md-body .tok-constant {
+    color: var(--cm-syntax-constant);
+}
+.code-preview-md-body .tok-variable {
+    color: var(--cm-syntax-variable);
+}
+.code-preview-md-body .tok-function {
+    color: var(--cm-syntax-function);
+}
+.code-preview-md-body .tok-type {
+    color: var(--cm-syntax-type);
+}
+.code-preview-md-body .tok-operator {
+    color: var(--cm-syntax-operator);
+}
+.code-preview-md-body .tok-special {
+    color: var(--cm-syntax-special);
+}
+.code-preview-md-body .tok-meta {
+    color: var(--cm-syntax-meta);
+}
+.code-preview-md-body .tok-heading {
+    color: var(--cm-syntax-heading);
+    font-weight: 600;
+}
+.code-preview-md-body .tok-link {
+    color: var(--cm-syntax-link);
+    text-decoration: underline;
+}
+.code-preview-md-body .tok-invalid {
+    color: var(--cm-syntax-invalid);
+}
+
+.code-preview-md-body a {
+    color: var(--accent-primary);
+    text-decoration: none;
+}
+
+.code-preview-md-body a:hover {
+    text-decoration: underline;
+}
+
+.code-preview-md-body img {
+    max-width: 100%;
+    height: auto;
+    background: transparent;
+}
+
+.code-preview-md-body hr {
+    height: 1px;
+    margin: 24px 0;
+    border: 0;
+    background: var(--border-default);
+}
+
+.code-preview-md-body table {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    margin: 0 0 16px;
+    overflow: auto;
+    border-collapse: collapse;
+}
+
+.code-preview-md-body th,
+.code-preview-md-body td {
+    padding: 6px 13px;
+    border: 1px solid var(--border-cell);
+}
+
+.code-preview-md-body th {
+    font-weight: 600;
+    background: var(--bg-header);
+    color: var(--text-secondary);
+}
+
+.code-preview-md-body tr:nth-child(2n) {
+    background: var(--bg-hover);
+}
+
+.code-preview-md-body del {
+    color: var(--text-muted);
+}
+
+/* mermaid 图表容器：居中展示，未渲染前不占据空白高度。 */
+.code-preview-md-body .mermaid-diagram {
+    margin: 0 0 16px;
+    text-align: center;
+}
+
+.code-preview-md-body .mermaid-diagram svg {
+    max-width: 100%;
+    height: auto;
+}
+
+.code-preview-md-body .mermaid-diagram--error {
+    padding: 12px 14px;
+    text-align: left;
+    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+    font-size: 0.85em;
+    color: var(--cm-syntax-invalid);
+    background: var(--md-code-block-bg);
+    border: 1px solid var(--border-default);
+    border-radius: 6px;
+}

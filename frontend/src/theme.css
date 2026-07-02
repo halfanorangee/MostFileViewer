@@ -152,19 +152,25 @@
     --cm-search-button-hover-bg: var(--bg-hover-accent);
     --cm-search-button-hover-border: var(--border-input);
     --cm-search-label-checkbox-text: var(--text-secondary);
-    --cm-syntax-comment: #6a737d;
-    --cm-syntax-keyword: #d73a49;
-    --cm-syntax-string: #032f62;
-    --cm-syntax-constant: #005cc5;
-    --cm-syntax-variable: #24292e;
-    --cm-syntax-function: #6f42c1;
-    --cm-syntax-type: #22863a;
-    --cm-syntax-operator: #586069;
-    --cm-syntax-special: #e36209;
-    --cm-syntax-meta: #735c0f;
-    --cm-syntax-heading: #005cc5;
-    --cm-syntax-link: #0366d6;
-    --cm-syntax-invalid: #b31d28;
+    --cm-syntax-comment: #8a929e;
+    --cm-syntax-keyword: #d6336c;
+    --cm-syntax-string: #0f9d58;
+    --cm-syntax-constant: #e8590c;
+    --cm-syntax-variable: #1f2937;
+    --cm-syntax-function: #7048e8;
+    --cm-syntax-type: #0b7285;
+    --cm-syntax-operator: #495057;
+    --cm-syntax-special: #d9480f;
+    --cm-syntax-meta: #862e9c;
+    --cm-syntax-heading: #1971c2;
+    --cm-syntax-link: #1c7ed6;
+    --cm-syntax-invalid: #e03131;
+
+    /* ================================================================
+     * Markdown 预览专用变量
+     * ================================================================ */
+    --md-inline-code-bg: rgba(175, 184, 193, 0.28); /* 行内代码背景 */
+    --md-code-block-bg: var(--bg-dropzone);          /* 围栏代码块背景 */
 
     /* ================================================================
      * Excel 表格网格固定配色（composables 与组件中使用）
@@ -314,6 +320,9 @@
     --cm-syntax-heading: #1f6feb;
     --cm-syntax-link: #58a6ff;
     --cm-syntax-invalid: #ff7b72;
+
+    /* ---- Markdown 预览（暗色下提高行内代码背景对比度） ---- */
+    --md-inline-code-bg: rgba(110, 118, 129, 0.4);
 
     /* ---- 滚动条 ---- */
     --scrollbar-track: #0d1117;

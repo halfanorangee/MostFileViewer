@@ -19,6 +19,7 @@
 | **📖 PDF 预览** | 内嵌 PDF 渲染，支持缩放 |
 | **🖼️ 图片预览** | 支持常见图片格式 (JPG, PNG, BMP, GIF, WebP, SVG, TIFF, ICO) |
 | **📝 代码预览** | 基于 CodeMirror 6 的语法高亮，支持 15+ 语言，**支持编辑并保存** |
+| **📘 Markdown 预览** | 源码/渲染双栏实时预览，滚动同步，支持 GFM 表格、任务列表、代码块语法高亮及 **Mermaid 图表** |
 | **🌐 HTML 预览** | 独立的单网页文件渲染，如同在浏览器中打开 |
 | **🔤 编码检测** | 自动检测 UTF-8 / UTF-16 / GBK / Big5 / ISO-8859-1，可手动切换，编码感知保存 |
 | **📂 文件夹浏览** | 延迟加载的目录树 + 虚拟滚动，支持 VSCode 风格文件图标 |
@@ -38,7 +39,8 @@
 |------|------|
 | 文档 | `.docx`（Word）、`.xlsx` / `.xls` / `.csv`（Excel）、`.pptx`（PowerPoint） |
 | 文档 | `.pdf`（PDF） |
-| 代码 | `.js` / `.ts` / `.go` / `.py` / `.java` / `.c` / `.cpp` / `.rs` / `.vue` / `.css` / `.html` / `.json` / `.xml` / `.yaml` / `.md` 等 |
+| 代码 | `.js` / `.ts` / `.go` / `.py` / `.java` / `.c` / `.cpp` / `.rs` / `.vue` / `.css` / `.html` / `.json` / `.xml` / `.yaml` 等 |
+| Markdown | `.md` / `.markdown`（源码/渲染双栏预览，支持 GFM 与 Mermaid） |
 | 图片 | `.jpg` / `.png` / `.bmp` / `.gif` / `.webp` / `.svg` / `.tiff` / `.ico` |
 | 网页 | `.html` / `.htm`（独立渲染） |
 
@@ -159,6 +161,8 @@ task package
 | **Vue 3** + **Vite 5** | 前端框架与构建 |
 | **LayUI Vue** | UI 组件库 |
 | **CodeMirror 6** (+15 语言包) | 代码编辑器与语法高亮 |
+| **marked** + **DOMPurify** | Markdown 解析与 HTML 净化 |
+| **mermaid** | Markdown 中的图表渲染 |
 | **@wailsio/runtime** | Wails JS 运行时桥接 |
 | **docx-preview** | Word 文档渲染 |
 | **exceljs** + **papaparse** | Excel / CSV 渲染 |
@@ -181,16 +185,6 @@ task package
 | ISO-8859-1 | 回退方案 |
 
 支持在预览时手动切换编码并重新加载，编辑保存时自动将内容按原编码写出。
-
----
-
-## 会话持久化
-
-打开的标签页和窗口状态保存在：
-
-**Windows:** `%APPDATA%/MostFileViewer/session.json`
-
-下次启动自动恢复上次关闭时的浏览状态。
 
 ---
 
