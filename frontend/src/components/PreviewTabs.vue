@@ -25,8 +25,16 @@
                     </div>
 
                     <div v-else class="preview-tabs__content">
+                        <PreviewPane
+                            v-if="tab.previewType === 'preview'"
+                            class="preview-pane-tab"
+                            :content="tab.content"
+                            :extension="tab.extension"
+                            :name="tab.name"
+                        />
+
                         <WordPreview
-                            v-if="tab.previewType === 'word'"
+                            v-else-if="tab.previewType === 'word'"
                             class="office-preview"
                             :src="tab.source"
                             @error="(err) => handleRenderError(tab.path, err)"
@@ -94,6 +102,10 @@
                                     emit('encoding-change', tab.path, encoding)
                             "
                             @save="emit('save-tab', tab.path)"
+                            @open-in-new-tab="
+                                (payload) =>
+                                    emit('open-in-new-tab', tab.path, payload)
+                            "
                         />
                     </div>
                 </lay-tab-item>
@@ -111,6 +123,7 @@ const PptPreview = defineAsyncComponent(() => import("./PptPreview.vue"));
 const PdfPreview = defineAsyncComponent(() => import("./PdfPreview.vue"));
 const ImagePreview = defineAsyncComponent(() => import("./ImagePreview.vue"));
 const CodePreview = defineAsyncComponent(() => import("./CodePreview.vue"));
+const PreviewPane = defineAsyncComponent(() => import("./PreviewPane.vue"));
 
 const props = defineProps({
     tabs: {
@@ -131,6 +144,7 @@ const emit = defineEmits([
     "content-change",
     "encoding-change",
     "save-tab",
+    "open-in-new-tab",
 ]);
 
 const codePreviewRefs = ref({});

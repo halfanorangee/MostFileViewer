@@ -94,6 +94,30 @@
                     />
                 </svg>
             </button>
+            <button
+                v-if="showPreviewIcon"
+                class="code-preview-action code-preview-action--new-tab"
+                type="button"
+                title="在新标签页中预览"
+                :aria-label="
+                    '在新标签页中预览' +
+                    (isMarkdownPreviewFile ? 'Markdown 预览' : '网页预览')
+                "
+                :disabled="!showPreviewIcon || syncingDocument"
+                @click="handleOpenInNewTab"
+            >
+                <svg
+                    class="code-preview-action__icon"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                    focusable="false"
+                >
+                    <path
+                        d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7ZM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7Z"
+                        fill="currentColor"
+                    />
+                </svg>
+            </button>
         </div>
     </div>
 </template>
@@ -155,7 +179,12 @@ const props = defineProps({
     },
 });
 
-const emit = defineEmits(["dirty", "save", "encoding-change"]);
+const emit = defineEmits([
+    "dirty",
+    "save",
+    "encoding-change",
+    "open-in-new-tab",
+]);
 
 const selectedSyntax = ref(detectSyntaxKey(props.extension, props.name));
 
@@ -541,6 +570,19 @@ function handleMarkdownPreviewClick() {
     refreshMarkdownScrollSync();
 }
 
+// 请求在新标签页中打开当前文件的只读预览，携带编辑器中的最新内容。
+function handleOpenInNewTab() {
+    if (!showPreviewIcon.value || syncingDocument.value) {
+        return;
+    }
+
+    emit("open-in-new-tab", {
+        content: getContent(),
+        extension: props.extension,
+        name: props.name,
+    });
+}
+
 defineExpose({
     getContent,
 });
@@ -680,13 +722,21 @@ function resolveSelectedLanguage() {
     justify-content: center;
     width: 24px;
     height: 24px;
-    margin-left: auto;
     padding: 0;
     border: 0;
     border-radius: 4px;
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
+}
+
+/* 预览按钮组从状态栏最右侧起排布 */
+.code-preview-action:not(.code-preview-action--new-tab) {
+    margin-left: auto;
+}
+
+.code-preview-action--new-tab {
+    margin-left: 2px;
 }
 
 .code-preview-action:hover:not(:disabled),

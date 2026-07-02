@@ -81,6 +81,7 @@
                             @content-change="handleContentChange"
                             @encoding-change="handleEncodingChange"
                             @save-tab="handleSaveTab"
+                            @open-in-new-tab="handleOpenInNewTab"
                         />
                     </div>
                 </section>
@@ -111,6 +112,9 @@ let removeFilesDroppedListener = null;
 let removeThemeChangeListener = null;
 let restoringSession = false;
 let persistSessionTimer = null;
+// 源文件编辑时刷新对应预览 tab 的防抖定时器：源 tab path → timer id
+const livePreviewTimers = new Map();
+const LIVE_PREVIEW_DELAY = 150;
 
 const { applyRemoteTheme } = useTheme();
 
@@ -339,7 +343,9 @@ async function persistWorkspaceSessionNow() {
     }
 
     const tabs = openTabs.value
-        .filter((tab) => tab?.path && tab.status !== "error")
+        .filter(
+            (tab) => tab?.path && tab.status !== "error" && !tab.previewOnly,
+        )
         .map((tab) => ({ path: tab.path }));
 
     if (!selectedFolder.value && tabs.length === 0) {
@@ -417,6 +423,7 @@ async function openFileInWorkspace(filePath) {
     treeData.value = [fileNode];
     sidebarOpen.value = false; // 选择单个文件时关闭侧边栏
     clearAllAutoSaveDebounceTimers();
+    clearAllLivePreviewTimers();
     releaseAllTabPayloads();
     await nextTick();
     openTabs.value = [];
@@ -526,6 +533,7 @@ async function handleOpenFolder(folderPath) {
         treeData.value = tree;
         sidebarOpen.value = true; // 选择文件夹时显示侧边栏
         clearAllAutoSaveDebounceTimers();
+        clearAllLivePreviewTimers();
         releaseAllTabPayloads();
         await nextTick();
         openTabs.value = [];
@@ -642,6 +650,7 @@ async function handleSelectFolder() {
         treeData.value = tree;
         sidebarOpen.value = true; // 选择文件夹时显示侧边栏
         clearAllAutoSaveDebounceTimers();
+        clearAllLivePreviewTimers();
         releaseAllTabPayloads();
         await nextTick();
         openTabs.value = [];
@@ -684,6 +693,52 @@ function handleChangeTab(path) {
     schedulePersistWorkspaceSession();
 }
 
+// 在新标签页中打开当前文件的只读预览（Markdown / 单体网页）。
+// 合成 tab 使用 preview:// 前缀路径，仅存在于内存中，不注册后端路径也不参与会话持久化。
+function handleOpenInNewTab(sourcePath, payload) {
+    if (!payload) {
+        return;
+    }
+
+    const previewPath = `preview://${sourcePath}`;
+    const previewName = payload.name
+        ? `${payload.name} (预览)`
+        : "预览";
+
+    const existingTab = openTabs.value.find((tab) => tab.path === previewPath);
+    if (existingTab) {
+        // 已存在同源预览 tab：刷新内容并聚焦。
+        updateTab(previewPath, {
+            content: payload.content ?? "",
+            extension: payload.extension || existingTab.extension,
+        });
+        activeTabPath.value = previewPath;
+        return;
+    }
+
+    const tab = {
+        path: previewPath,
+        name: previewName,
+        extension: payload.extension || "",
+        status: "ready",
+        previewType: "preview",
+        previewOnly: true,
+        source: null,
+        content: payload.content ?? "",
+        encoding: "utf-8",
+        dirty: false,
+        saving: false,
+        saveError: "",
+        encodingLoading: false,
+        contentVersion: 0,
+        changeVersion: 0,
+        savedVersion: 0,
+    };
+
+    openTabs.value = [...openTabs.value, tab];
+    activeTabPath.value = previewPath;
+}
+
 async function handleCloseTab(path) {
     const currentIndex = openTabs.value.findIndex((tab) => tab.path === path);
     if (currentIndex === -1) {
@@ -691,6 +746,7 @@ async function handleCloseTab(path) {
     }
 
     let currentTab = openTabs.value.find((tab) => tab.path === path);
+    const isPreviewOnly = currentTab?.previewOnly === true;
     if (currentTab?.dirty) {
         await handleSaveTab(path);
         currentTab = openTabs.value.find((tab) => tab.path === path);
@@ -703,13 +759,21 @@ async function handleCloseTab(path) {
     clearAutoSaveDebounceTimer(path);
     encodingChangeRequests.delete(path);
     releaseTabPayload(path);
+    // 关闭源 tab 时清理其实时预览定时器；关闭预览 tab 时清理对应源的定时器。
+    if (isPreviewOnly) {
+        clearLivePreviewTimer(path.replace(/^preview:\/\//, ""));
+    } else {
+        clearLivePreviewTimer(path);
+    }
     await nextTick();
 
     const nextTabs = openTabs.value.filter((tab) => tab.path !== path);
     openTabs.value = nextTabs;
 
-    // 注销已关闭 tab 的文件路径
-    await unregisterOpenPath(path);
+    // 注销已关闭 tab 的文件路径（合成预览 tab 未注册后端路径，跳过）
+    if (!isPreviewOnly) {
+        await unregisterOpenPath(path);
+    }
 
     // 单文件模式下关闭最后一个 tab 后返回首页
     if (nextTabs.length === 0 && !isActualFolderPreview.value) {
@@ -768,7 +832,32 @@ function handleContentChange(path) {
         changeVersion: (tab.changeVersion ?? 0) + 1,
     });
 
+    scheduleLivePreviewSync(path);
     scheduleAutoSave(path);
+}
+
+// 源文件编辑时，防抖刷新其对应的只读预览 tab，实现「编辑即预览」。
+function scheduleLivePreviewSync(sourcePath) {
+    const previewPath = `preview://${sourcePath}`;
+    if (!openTabs.value.some((tab) => tab.path === previewPath)) {
+        return;
+    }
+
+    const existingTimer = livePreviewTimers.get(sourcePath);
+    if (existingTimer) {
+        clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+        livePreviewTimers.delete(sourcePath);
+        const latest = previewTabs.value?.getCodeContent?.(sourcePath);
+        if (latest === undefined || latest === null) {
+            return;
+        }
+        updateTab(previewPath, { content: latest });
+    }, LIVE_PREVIEW_DELAY);
+
+    livePreviewTimers.set(sourcePath, timer);
 }
 
 async function handleEncodingChange(path, encoding) {
@@ -1151,9 +1240,24 @@ function clearAllAutoSaveDebounceTimers() {
     autoSaveDebounceTimers.clear();
 }
 
+function clearLivePreviewTimer(sourcePath) {
+    const timer = livePreviewTimers.get(sourcePath);
+    if (!timer) {
+        return;
+    }
+    clearTimeout(timer);
+    livePreviewTimers.delete(sourcePath);
+}
+
+function clearAllLivePreviewTimers() {
+    livePreviewTimers.forEach((timer) => clearTimeout(timer));
+    livePreviewTimers.clear();
+}
+
 function stopAutoSave() {
     // 清理防抖定时器
     clearAllAutoSaveDebounceTimers();
+    clearAllLivePreviewTimers();
 
     // 清理定时保存定时器
     if (autoSaveIntervalTimer) {
