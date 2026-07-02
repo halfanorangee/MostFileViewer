@@ -73,6 +73,7 @@ function openContextMenu({ node, x, y }) {
 
 function closeContextMenu() {
   contextMenu.open = false;
+  contextMenu.node = null;
   document.removeEventListener('click', closeContextMenu);
 }
 

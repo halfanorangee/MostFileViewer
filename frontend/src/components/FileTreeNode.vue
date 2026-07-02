@@ -3,10 +3,7 @@
         <button
             type="button"
             class="tree-node__row"
-            :class="{
-                'tree-node__row--active': activePath === node.path,
-                'tree-node__row--context-active': contextActivePath === node.path,
-            }"
+            :class="{ 'tree-node__row--active': isHighlighted }"
             :style="{ paddingLeft: `${depth * 16 + 12}px` }"
             @click="handleClick"
             @contextmenu.prevent.stop="handleContextMenu"
@@ -64,6 +61,14 @@ const emit = defineEmits(["open-file", "load-folder", "node-context-menu"]);
 const isFolder = computed(() => props.node.type === "folder");
 const expanded = ref(false);
 
+// 同一时间只展示一条背景色：右键菜单打开时以右键选中项为准，否则以左键选中项为准
+const isHighlighted = computed(() => {
+    if (props.contextActivePath) {
+        return props.contextActivePath === props.node.path;
+    }
+    return props.activePath === props.node.path;
+});
+
 const caret = computed(() => {
     if (!isFolder.value) {
         return "·";
@@ -111,8 +116,7 @@ function handleContextMenu(event) {
     background: var(--bg-hover);
 }
 
-.tree-node__row--active,
-.tree-node__row--context-active {
+.tree-node__row--active {
     background: var(--bg-active);
     color: var(--text-active);
 }
