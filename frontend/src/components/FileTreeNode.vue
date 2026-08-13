@@ -36,8 +36,9 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import FileIcon from "./FileIcon.vue";
+import { App } from "../../bindings/MostFileViewer";
 
 const props = defineProps({
     node: {
@@ -65,6 +66,14 @@ const props = defineProps({
 const emit = defineEmits(["open-file", "load-folder", "node-context-menu"]);
 const isFolder = computed(() => props.node.type === "folder");
 const expanded = ref(false);
+
+// 首次展开（false → true）时通知后端把本目录加入 fsnotify watcher。
+// 后端靠 watchedDirs 判重，重复调用安全；折叠时不摘除（watch 集合单调增长）。
+watch(expanded, (val, old) => {
+    if (val && !old) {
+        App.WatchFolder(props.node.path, true).catch(() => {});
+    }
+});
 
 // 搜索过滤时以父级下发的 forceExpanded 为准强制展开，否则使用本地展开状态
 const isExpanded = computed(() => {

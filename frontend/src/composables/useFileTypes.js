@@ -179,3 +179,44 @@ export function isMarkdownFile(extension) {
         (extension || "").toLowerCase(),
     );
 }
+
+// 由 syntax 键反推默认文件扩展名（虚拟 tab 落地时若 syntax 已切，按语法给后缀）
+export function inferExtensionFromSyntax(syntaxKey) {
+    const map = {
+        javascript: ".js",
+        typescript: ".ts",
+        vue: ".vue",
+        html: ".html",
+        css: ".css",
+        json: ".json",
+        markdown: ".md",
+        xml: ".xml",
+        yaml: ".yaml",
+        toml: ".toml",
+        python: ".py",
+        shell: ".sh",
+        go: ".go",
+        java: ".java",
+        sql: ".sql",
+        cpp: ".cpp",
+        csharp: ".cs",
+        rust: ".rs",
+        ruby: ".rb",
+        php: ".php",
+        swift: ".swift",
+        kotlin: ".kt",
+        scala: ".scala",
+        dart: ".dart",
+        lua: ".lua",
+        perl: ".pl",
+        r: ".r",
+        clojure: ".clj",
+        powershell: ".ps1",
+        protobuf: ".proto",
+        nginx: ".conf",
+        cmake: ".cmake",
+        diff: ".patch",
+        properties: ".ini",
+    };
+    return map[syntaxKey] || ".txt";
+}

@@ -55,6 +55,23 @@
                         <div class="menu-divider"></div>
                         <button
                             class="menu-item"
+                            :disabled="!canSave"
+                            @click.stop="handleSave"
+                        >
+                            保存
+                            <span class="menu-item__hint">S</span>
+                        </button>
+                        <button
+                            class="menu-item"
+                            :disabled="!canSaveAs"
+                            @click.stop="handleSaveAs"
+                        >
+                            另存为…
+                            <span class="menu-item__hint">Shift+S</span>
+                        </button>
+                        <div class="menu-divider"></div>
+                        <button
+                            class="menu-item"
                             @click.stop="handleNewWindow"
                         >
                             新窗口
@@ -216,6 +233,14 @@ defineProps({
         type: Boolean,
         default: true,
     },
+    canSave: {
+        type: Boolean,
+        default: false,
+    },
+    canSaveAs: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const emit = defineEmits([
@@ -223,6 +248,8 @@ const emit = defineEmits([
     "select-folder",
     "toggle-sidebar",
     "new-window",
+    "save",
+    "save-as",
 ]);
 
 const isMaximized = ref(false);
@@ -327,6 +354,16 @@ function handleNewWindow() {
     closeMenu();
     emit("new-window");
 }
+
+function handleSave() {
+    closeMenu();
+    emit("save");
+}
+
+function handleSaveAs() {
+    closeMenu();
+    emit("save-as");
+}
 </script>
 
 <style scoped>
@@ -373,5 +410,17 @@ function handleNewWindow() {
 
 .menu-item:hover .dropdown-menu__icon {
     color: var(--accent-active);
+}
+
+.menu-item:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.menu-item__hint {
+    margin-left: auto;
+    padding-left: 16px;
+    font-size: 11px;
+    color: var(--text-muted);
 }
 </style>

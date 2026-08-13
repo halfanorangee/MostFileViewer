@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +19,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	textencoding "golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
@@ -33,6 +35,8 @@ type windowState struct {
 	allowedFiles map[string]struct{}
 	openPaths    map[string]struct{} // 当前窗口已打开的文件/文件夹路径集合
 	mu           sync.Mutex
+	watcher      *fsnotify.Watcher     // 当前工作区的 fsnotify 监听器；nil 表示未启动或启动失败
+	watchedDirs  map[string]struct{}   // 已加入 watcher 的目录（绝对路径），单调增长；窗口关闭/工作区切换时清空
 }
 
 type App struct {
@@ -42,6 +46,7 @@ type App struct {
 	restoreSessions map[uint]*WindowSession
 	windowSessions  map[uint]WindowSession
 	activeWindows   map[uint]struct{}
+	wailsApp        *application.App // 由 main.go 在 app.Run 之前注入，用于按窗口 EmitEvent
 }
 
 type FileTreeNode struct {
@@ -52,6 +57,24 @@ type FileTreeNode struct {
 	Loaded    bool           `json:"loaded"`
 	HasChild  bool           `json:"hasChild"`
 	Children  []FileTreeNode `json:"children,omitempty"`
+}
+
+// FsChangePayload 是按窗口推送的「父目录级批量变化」事件，per-parent 100ms 防抖合并后发出。
+// 前端最低开销反应是「重扫 parent」，不需要为 50 个事件分别 diff。
+type FsChangePayload struct {
+	Parent  string         `json:"parent"`
+	Changes []FsChangeItem `json:"changes"`
+}
+
+type FsChangeItem struct {
+	Path  string `json:"path"`
+	Op    string `json:"op"`    // create/remove/rename/write/chmod，合并时取最高优先级
+	IsDir bool   `json:"isDir"` // flush 时由 os.Stat 决定
+}
+
+// fileRemovedPayload 是独立事件，给 tab 联动专用：避免在 fs-change 处理完后还要二次扫所有 tab。
+type fileRemovedPayload struct {
+	Path string `json:"path"`
 }
 
 type FileInfo struct {
@@ -253,6 +276,12 @@ func (a *App) LoadFolderTree(ctx context.Context, root string) ([]FileTreeNode, 
 	state.currentRoot = cleanRoot
 	state.allowedFiles = make(map[string]struct{})
 	state.mu.Unlock()
+
+	// 启动/重建工作区监听器：旧 watcher 关闭后从空集开始；Add 失败仅 log，不阻断树返回。
+	a.resetWatcher(state, cleanRoot)
+	if err := a.addWatchDir(state, cleanRoot); err != nil {
+		log.Printf("fswatch: Add 根目录失败 (window=%d, root=%s): %v", windowIDFromCtx(ctx), cleanRoot, err)
+	}
 	return nodes, nil
 }
 
@@ -286,7 +315,251 @@ func (a *App) LoadFolderChildren(ctx context.Context, path string) ([]FileTreeNo
 	if err != nil {
 		return nil, fmt.Errorf("扫描文件夹失败: %w", err)
 	}
+
+	// 首次展开时把该目录加入 watcher：已加则跳过；Add 失败仅 log，不阻断 children 返回。
+	if err := a.addWatchDir(state, cleanPath); err != nil {
+		log.Printf("fswatch: Add 子目录失败 (window=%d, path=%s): %v", windowIDFromCtx(ctx), cleanPath, err)
+	}
 	return nodes, nil
+}
+
+// WatchFolder 由前端 FileTreeNode 首次展开时调用，请求把指定目录加入本窗口的 watcher。
+// watching==false 本版本不实现：watch 集合单调增长，折叠不摘除（避免重新展开时再走 fs 同步）。
+// 路径必须走 filepath.Abs 清洗，避免斜杠方向差异导致 watcher 内部去重失效。
+func (a *App) WatchFolder(ctx context.Context, path string, watching bool) error {
+	if !watching {
+		return nil
+	}
+	cleanPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("解析路径失败: %w", err)
+	}
+
+	state := a.getOrCreateState(ctx)
+	state.mu.Lock()
+	if strings.TrimSpace(state.currentRoot) == "" {
+		state.currentRoot = cleanPath
+	}
+	root := state.currentRoot
+	state.mu.Unlock()
+
+	if !isPathWithinRoot(root, cleanPath) {
+		return errors.New("当前文件夹不在已打开文件夹范围内")
+	}
+
+	return a.addWatchDir(state, cleanPath)
+}
+
+// addWatchDir 把目录加入窗口 watcher。已加则直接返回 nil；watcher 为 nil（启动失败）也直接返回 nil。
+// 不持有 state.mu 进入（调用方需在锁外调用），避免与 consumeWatcherEvents 互锁。
+func (a *App) addWatchDir(state *windowState, dir string) error {
+	if state == nil {
+		return nil
+	}
+	state.mu.Lock()
+	watcher := state.watcher
+	if watcher == nil {
+		state.mu.Unlock()
+		return nil
+	}
+	if _, ok := state.watchedDirs[dir]; ok {
+		state.mu.Unlock()
+		return nil
+	}
+	state.mu.Unlock()
+
+	if err := watcher.Add(dir); err != nil {
+		return err
+	}
+
+	state.mu.Lock()
+	if state.watchedDirs == nil {
+		state.watchedDirs = make(map[string]struct{})
+	}
+	// 二次检查：避免并发 Add 后重复写入
+	if _, exists := state.watchedDirs[dir]; !exists {
+		state.watchedDirs[dir] = struct{}{}
+	}
+	state.mu.Unlock()
+	return nil
+}
+
+// resetWatcher 关闭旧 watcher 并重建一个新的；启动消费 goroutine。
+// 用于 LoadFolderTree 成功路径（切换工作区或首次打开）；不持有 state.mu。
+func (a *App) resetWatcher(state *windowState, newRoot string) {
+	if state == nil {
+		return
+	}
+
+	state.mu.Lock()
+	oldWatcher := state.watcher
+	state.watcher = nil
+	state.watchedDirs = nil
+	state.mu.Unlock()
+
+	// Close 旧 watcher：幂等；Close 后 Events channel 关闭，消费 goroutine 自然退出。
+	if oldWatcher != nil {
+		_ = oldWatcher.Close()
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Printf("fswatch: NewWatcher 失败 (root=%s): %v", newRoot, err)
+		return
+	}
+
+	state.mu.Lock()
+	state.watcher = watcher
+	state.watchedDirs = make(map[string]struct{})
+	state.mu.Unlock()
+
+	// 找 windowID 启动消费循环：state 在 a.states 中，需要扫一遍拿 key
+	windowID := uint(0)
+	a.states.Range(func(key, value any) bool {
+		if value.(*windowState) == state {
+			if id, ok := key.(uint); ok {
+				windowID = id
+			}
+			return false
+		}
+		return true
+	})
+	if windowID == 0 {
+		// 兜底：拿不到 windowID 时不强启动，避免静默 goroutine
+		log.Printf("fswatch: 找不到 windowID，放弃启动消费循环 (root=%s)", newRoot)
+		return
+	}
+
+	log.Printf("fswatch started (window=%d, root=%s)", windowID, newRoot)
+	go a.consumeWatcherEvents(windowID, watcher)
+}
+
+// consumeWatcherEvents 读取 watcher 的 Events/Errors，per-parent 100ms 防抖后按窗口 EmitEvent。
+// 同一 parent 内多事件按 op 优先级合并（Remove > Rename > Create > Write > Chmod）。
+// op=remove && !isDir 时额外 emit file-removed 给 tab 联动专用。
+// watcher.Events 关闭时 goroutine 自然 return。
+func (a *App) consumeWatcherEvents(windowID uint, watcher *fsnotify.Watcher) {
+	// defer 兜底日志：Close 后 Events 关闭，循环退出
+	defer log.Printf("fswatch closed (window=%d)", windowID)
+
+	const debounce = 100 * time.Millisecond
+	timers := make(map[string]*time.Timer)
+	pending := make(map[string]map[string]string) // parent -> path -> op
+
+	opPriority := func(op string) int {
+		switch op {
+		case "remove":
+			return 5
+		case "rename":
+			return 4
+		case "create":
+			return 3
+		case "write":
+			return 2
+		case "chmod":
+			return 1
+		default:
+			return 0
+		}
+	}
+
+	toOp := func(op fsnotify.Op) string {
+		switch {
+		case op&fsnotify.Create != 0:
+			return "create"
+		case op&fsnotify.Remove != 0:
+			return "remove"
+		case op&fsnotify.Rename != 0:
+			return "rename"
+		case op&fsnotify.Write != 0:
+			return "write"
+		case op&fsnotify.Chmod != 0:
+			return "chmod"
+		default:
+			return "unknown"
+		}
+	}
+
+	flush := func(parent string) {
+		items, ok := pending[parent]
+		if !ok || len(items) == 0 {
+			delete(timers, parent)
+			return
+		}
+		delete(pending, parent)
+		delete(timers, parent)
+
+		changes := make([]FsChangeItem, 0, len(items))
+		for path, op := range items {
+			info, err := os.Stat(path)
+			isDir := err == nil && info.IsDir()
+			// 文件已不存在时，fsnotify 报 Remove，isDir=false 即可（info 拿不到）
+			changes = append(changes, FsChangeItem{
+				Path:  path,
+				Op:    op,
+				IsDir: isDir,
+			})
+		}
+
+		if a.wailsApp == nil {
+			return
+		}
+		win, exists := a.wailsApp.Window.GetByID(windowID)
+		if !exists {
+			return
+		}
+
+		win.EmitEvent("fs-change", FsChangePayload{
+			Parent:  parent,
+			Changes: changes,
+		})
+		for _, item := range changes {
+			if item.Op == "remove" && !item.IsDir {
+				win.EmitEvent("file-removed", fileRemovedPayload{Path: item.Path})
+			}
+		}
+	}
+
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				// channel 关闭：把还没 flush 的全部 flush 出去
+				for parent, t := range timers {
+					t.Stop()
+					flush(parent)
+				}
+				return
+			}
+			parent := filepath.Dir(event.Name)
+			op := toOp(event.Op)
+
+			// 防抖：如果已有 timer，停止并重置
+			if t, ok := timers[parent]; ok {
+				t.Stop()
+			}
+			if pending[parent] == nil {
+				pending[parent] = make(map[string]string)
+			}
+			// 同一 path 在窗口内多次事件：保留优先级最高者
+			cur, exists := pending[parent][event.Name]
+			if !exists || opPriority(op) > opPriority(cur) {
+				pending[parent][event.Name] = op
+			}
+			timers[parent] = time.AfterFunc(debounce, func() {
+				flush(parent)
+			})
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				for parent, t := range timers {
+					t.Stop()
+					flush(parent)
+				}
+				return
+			}
+			log.Printf("fswatch error (window=%d): %v", windowID, err)
+		}
+	}
 }
 
 func (a *App) ReadFile(ctx context.Context, path string) (*FileContent, error) {
@@ -382,6 +655,7 @@ func (a *App) ReadFileChunk(ctx context.Context, path string, offset int64, size
 	}, nil
 }
 
+// SaveFile 把已存在的文本文件按指定编码原子写回。
 func (a *App) SaveFile(ctx context.Context, path string, content string, encoding string) error {
 	cleanPath, info, err := a.validateFilePath(ctx, path)
 	if err != nil {
@@ -412,6 +686,68 @@ func (a *App) SaveFile(ctx context.Context, path string, content string, encodin
 	}
 
 	return nil
+}
+
+// SaveFileAs 弹「另存为」对话框把内容写入用户选择的新位置。用于新建空白 tab
+// 的首次落地：suggestedName 提供默认文件名，defaultDirectory 提供默认打开目录
+// （传空表示由对话框自行决定）。用户取消时返回空字符串与 nil 错误；
+// 写入失败或路径异常时返回非 nil 错误，前端据此在状态栏显示 saveError。
+func (a *App) SaveFileAs(ctx context.Context, suggestedName string, content string, encoding string, defaultDirectory string) (string, error) {
+	if strings.TrimSpace(suggestedName) == "" {
+		return "", errors.New("建议文件名不能为空")
+	}
+
+	normalizedEncoding, err := normalizeTextEncoding(encoding)
+	if err != nil {
+		return "", err
+	}
+
+	dialog := application.Get().Dialog.SaveFile().
+		SetMessage("另存为 - 选择新文件的保存位置").
+		SetFilename(suggestedName)
+	if strings.TrimSpace(defaultDirectory) != "" {
+		dialog.SetDirectory(defaultDirectory)
+	}
+	if win, ok := ctx.Value(application.WindowKey).(application.Window); ok {
+		dialog.AttachToWindow(win)
+	}
+
+	selectedPath, err := dialog.PromptForSingleSelection()
+	if err != nil {
+		// Wails v3 在用户主动关闭/取消对话框时返回 cfd.ErrorCancelled（文本为 "cancelled by user"）。
+		// cfd 包位于 internal/ 路径，外部模块无法 import，精确字符串匹配是当前唯一可行的检测方式。
+		// 该 sentinel 在 wails/v3 多 alpha 版本下文本保持稳定。
+		if err.Error() == "cancelled by user" {
+			return "", nil
+		}
+		return "", fmt.Errorf("打开保存对话框失败: %w", err)
+	}
+	if selectedPath == "" {
+		// 用户取消：返回空串表示「未落地」，不视为错误
+		return "", nil
+	}
+
+	cleanPath, err := filepath.Abs(selectedPath)
+	if err != nil {
+		return "", fmt.Errorf("解析保存路径失败: %w", err)
+	}
+
+	// 新建文件使用 0644 默认权限；若目标已存在则沿用原权限，避免改变用户既有设置
+	perm := os.FileMode(0o644)
+	if info, statErr := os.Stat(cleanPath); statErr == nil && !info.IsDir() {
+		perm = info.Mode().Perm()
+	}
+
+	encodedContent, err := encodeText(content, normalizedEncoding, nil)
+	if err != nil {
+		return "", fmt.Errorf("编码文件内容失败: %w", err)
+	}
+
+	if err := writeFileAtomically(cleanPath, encodedContent, perm); err != nil {
+		return "", fmt.Errorf("保存文件失败: %w", err)
+	}
+
+	return cleanPath, nil
 }
 
 // readFileHeader 只读取文件前 n 个字节，避免为了识别 BOM 而把整个文件加载到内存中。
@@ -608,6 +944,15 @@ func writeFileAtomically(path string, data []byte, perm os.FileMode) error {
 }
 
 func replaceFileOnWindows(path string, tmpName string) error {
+	// 目标文件可能不存在（SaveFileAs 首次落地的新文件），直接 rename tmp 即可，
+	// 不需要走"先备份再替换"的流程——没有原文件可备份。
+	if _, err := os.Stat(path); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return os.Rename(tmpName, path)
+	}
+
 	backup, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".bak-*")
 	if err != nil {
 		return err
@@ -1467,6 +1812,7 @@ func (a *App) FocusWindow(windowID uint) error {
 
 // cleanupWindowState 清理窗口关闭后的状态
 func (a *App) cleanupWindowState(windowID uint) {
+	var watcherToClose *fsnotify.Watcher
 	if value, ok := a.states.Load(windowID); ok {
 		state := value.(*windowState)
 		state.mu.Lock()
@@ -1475,7 +1821,15 @@ func (a *App) cleanupWindowState(windowID uint) {
 				a.pathOwners.Delete(path)
 			}
 		}
+		// Close watcher 前先把引用拿出来，再清空字段；Close 后消费 goroutine 会从 Events channel 关闭退出
+		watcherToClose = state.watcher
+		state.watcher = nil
+		state.watchedDirs = nil
 		state.mu.Unlock()
 	}
 	a.states.Delete(windowID)
+	// Close 必须在 states.Delete 之后、goroutine 检查 state 之前；幂等，重复调用安全
+	if watcherToClose != nil {
+		_ = watcherToClose.Close()
+	}
 }

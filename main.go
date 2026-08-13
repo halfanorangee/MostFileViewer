@@ -51,6 +51,10 @@ func main() {
 		appInstance.assignRestoreSession(extraWin.ID(), session)
 	}
 
+	// 把 wailsApp 注入到 appInstance，让 fsnotify 消费循环能按窗口 EmitEvent。
+	// 必须在 app.Run 之前；app.Run 之后所有窗口事件通过 app.Window 仍然可访问。
+	appInstance.wailsApp = app
+
 	err := app.Run()
 	if err != nil {
 		log.Fatal(err)

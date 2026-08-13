@@ -3,6 +3,7 @@ module MostFileViewer
 go 1.25
 
 require (
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.74
 	golang.org/x/sys v0.40.0
 	golang.org/x/text v0.33.0

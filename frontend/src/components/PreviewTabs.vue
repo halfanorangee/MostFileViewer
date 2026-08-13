@@ -12,6 +12,7 @@
             :class="{
                 'preview-tabs__container--empty': !tabs.length,
             }"
+            @dblclick="handleContainerDblClick"
         >
             <template v-if="tabs.length">
                 <lay-tab
@@ -109,15 +110,24 @@
                                 :name="tab.name"
                                 :encoding="tab.encoding"
                                 :encoding-loading="tab.encodingLoading"
+                                :is-virtual="!!tab.virtual"
+                                :is-dirty="!!tab.dirty"
+                                :is-saving="!!tab.saving"
+                                :auto-save-enabled="autoSaveEnabled"
                                 @dirty="handleContentChange(tab.path)"
                                 @encoding-change="
                                     (encoding) =>
                                         emit('encoding-change', tab.path, encoding)
                                 "
                                 @save="emit('save-tab', tab.path)"
+                                @save-as="emit('save-as-tab', tab.path)"
                                 @open-in-new-tab="
                                     (payload) =>
                                         emit('open-in-new-tab', tab.path, payload)
+                                "
+                                @auto-save-toggle="
+                                    (enabled) =>
+                                        emit('auto-save-toggle', enabled)
                                 "
                             />
                         </div>
@@ -178,6 +188,10 @@ const props = defineProps({
         type: String,
         default: "",
     },
+    autoSaveEnabled: {
+        type: Boolean,
+        default: true,
+    },
 });
 
 const emit = defineEmits([
@@ -188,9 +202,11 @@ const emit = defineEmits([
     "content-change",
     "encoding-change",
     "save-tab",
+    "save-as-tab",
     "open-in-new-tab",
     "reorder-tab",
     "new-tab",
+    "auto-save-toggle",
 ]);
 
 const codePreviewRefs = ref({});
@@ -459,5 +475,36 @@ function handleContentChange(path) {
 
 function handleRenderError(path, error) {
     emit("preview-error", path, error);
+}
+
+// 在 tab 签区域的空白处双击即可新增空白 tab：
+// - tab 签条最右侧的 padding 留白（`.layui-tab-title` 内除 li 之外的区域）
+// - 无 tab 时的整片空白提示区
+// 双击已有的 tab 签本身、关闭按钮、+ 按钮或 tab 内容区均不触发，避免误操作。
+function handleContainerDblClick(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+        return;
+    }
+    // 「+」按钮自带单击逻辑，避免重复触发
+    if (target.closest(".preview-tabs__new-btn")) {
+        return;
+    }
+    // 双击已有 tab 签不触发（保留给 layui 自带行为）
+    if (target.closest(".layui-tab-title li")) {
+        return;
+    }
+    // tab 签条最右侧 padding 留白
+    if (target.closest(".layui-tab-title")) {
+        emit("new-tab");
+        return;
+    }
+    // 无 tab 时的提示区（pointer-events: none，事件实际落在容器上）
+    if (
+        target.closest(".preview-tabs__empty-hint") ||
+        (target === event.currentTarget && props.tabs.length === 0)
+    ) {
+        emit("new-tab");
+    }
 }
 </script>

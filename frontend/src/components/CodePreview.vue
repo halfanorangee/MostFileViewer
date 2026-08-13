@@ -151,19 +151,19 @@
             >
                 {{ fontSize }}px
             </button>
-            <label v-if="selectedSyntax !== 'json'" class="code-preview-writable">
-                <span>只读</span>
+            <label class="code-preview-autosave">
+                <span>自动保存</span>
                 <span
                     class="code-preview-switch"
-                    :class="{ 'code-preview-switch--on': readonly }"
+                    :class="{ 'code-preview-switch--on': autoSaveEnabled }"
                 >
                     <input
                         type="checkbox"
                         class="code-preview-switch__input"
                         role="switch"
-                        :checked="readonly"
+                        :checked="autoSaveEnabled"
                         :disabled="encodingLoading || syncingDocument"
-                        @change="handleReadonlyChange"
+                        @change="handleAutoSaveChange"
                         @keydown.space.prevent
                     />
                     <span class="code-preview-switch__track">
@@ -218,6 +218,7 @@
                     </svg>
                 </button>
             </template>
+            <!-- 「另存为」按钮已移除，仅保留 Ctrl+Shift+S 快捷键入口 -->
             <button
                 v-if="showPreviewIcon"
                 class="code-preview-action"
@@ -329,13 +330,31 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    isVirtual: {
+        type: Boolean,
+        default: false,
+    },
+    isDirty: {
+        type: Boolean,
+        default: false,
+    },
+    isSaving: {
+        type: Boolean,
+        default: false,
+    },
+    autoSaveEnabled: {
+        type: Boolean,
+        default: true,
+    },
 });
 
 const emit = defineEmits([
     "dirty",
     "save",
+    "save-as",
     "encoding-change",
     "open-in-new-tab",
+    "auto-save-toggle",
 ]);
 
 const selectedSyntax = ref(detectSyntaxKey(props.extension, props.name));
@@ -410,8 +429,6 @@ const encodingOptions = [
 ];
 const selectedEncoding = ref(normalizeEncoding(props.encoding));
 const syncingDocument = ref(false);
-// 编辑器只读开关，默认关闭；开启后编辑器变为只读。
-const readonly = ref(false);
 // JSON 格式化/压缩解析失败时的错误提示，仅在 JSON 语法下显示。
 const jsonError = ref("");
 const isStandaloneWebPreviewFile = computed(
@@ -435,6 +452,13 @@ const previewActionTitle = computed(() => {
     }
     return webPreviewVisible.value ? "关闭网页预览" : "预览网页样式";
 });
+
+// 状态栏另存为按钮的可见性：实文件 + virtual 都允许（用于另存为副本 / 首次落地）。
+// 原地保存按钮已移除，保留 Ctrl+S 快捷键入口。
+const canSaveAs = computed(() => !props.isSaving);
+function handleSaveAsClick() {
+    emit("save-as");
+}
 
 const host = ref(null);
 const previewBody = ref(null);
@@ -662,17 +686,20 @@ watch(
 watch(
     () => props.encodingLoading,
     () => {
-        applyEditableState();
+        editor?.dispatch({
+            effects: editable.reconfigure(
+                EditorView.editable.of(isEditorEditable()),
+            ),
+        });
     },
 );
 
-// 切换只读开关：更新状态并重新配置编辑器可编辑性。
-function handleReadonlyChange(event) {
+// 切换自动保存开关：将最新状态抛给父组件持久化与控制保存行为。
+function handleAutoSaveChange(event) {
     if (props.encodingLoading || syncingDocument.value) {
         return;
     }
-    readonly.value = event.target.checked;
-    applyEditableState();
+    emit("auto-save-toggle", event.target.checked);
 }
 
 const JSON_ERROR_DISPLAY_MS = 4000;
@@ -745,17 +772,9 @@ function handleCompressJson() {
     }
 }
 
-// 编辑器最终可编辑状态：仅当未开启只读且未在加载编码时可写。
+// 编辑器最终可编辑状态：仅在加载编码过程中临时禁用编辑。
 function isEditorEditable() {
-    return !readonly.value && !props.encodingLoading;
-}
-
-function applyEditableState() {
-    editor?.dispatch({
-        effects: editable.reconfigure(
-            EditorView.editable.of(isEditorEditable()),
-        ),
-    });
+    return !props.encodingLoading;
 }
 
 watch(
@@ -782,6 +801,14 @@ watch(
                                 preventDefault: true,
                                 run: () => {
                                     emit("save");
+                                    return true;
+                                },
+                            },
+                            {
+                                key: "Mod-Shift-s",
+                                preventDefault: true,
+                                run: () => {
+                                    emit("save-as");
                                     return true;
                                 },
                             },
@@ -984,11 +1011,6 @@ function handleSyntaxChange(event) {
     if (markdownLivePreviewTimer !== null) {
         clearTimeout(markdownLivePreviewTimer);
         markdownLivePreviewTimer = null;
-    }
-    // 切到 JSON 时自动关闭只读，确保格式化/压缩等操作可用
-    if (event.target.value === "json" && readonly.value) {
-        readonly.value = false;
-        applyEditableState();
     }
     documentSyncToken += 1;
     void configureLanguage();
@@ -1234,7 +1256,7 @@ async function configureLanguage() {
     color: var(--accent-active);
 }
 
-.code-preview-writable {
+.code-preview-autosave {
     display: inline-flex;
     align-items: center;
     gap: 6px;
