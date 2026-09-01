@@ -39,7 +39,7 @@
                     >
                         文件
                     </button>
-                    <div v-if="menuOpen" class="menu-panel dropdown-menu">
+                    <div v-if="menuOpen" ref="dropdownRef" class="menu-panel dropdown-menu" :style="menuStyle">
                         <button
                             class="menu-item"
                             @click.stop="handleSelectFile"
@@ -220,9 +220,11 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { Window } from "@wailsio/runtime";
 import { useTheme } from "../composables/useTheme";
+import { useMenuPosition } from "../composables/useMenuPosition";
+import { useExclusiveMenu } from "../composables/useExclusiveMenu";
 
 defineProps({
     showSidebarToggle: {
@@ -253,7 +255,19 @@ const emit = defineEmits([
 ]);
 
 const isMaximized = ref(false);
-const menuOpen = ref(false);
+const {
+    isMenuOpen,
+    toggleMenu: toggleExclusiveMenu,
+    closeMenu: closeExclusiveMenu,
+} = useExclusiveMenu();
+const menuOpen = computed(() => isMenuOpen("file"));
+const dropdownRef = ref(null);
+
+// 文件菜单定位：空间不足时自动翻转方向/夹紧边界，仍放不下时改为菜单内部滚动
+const { menuStyle, positionMenu, stopAutoUpdate } = useMenuPosition({
+    placement: "bottom",
+    align: "center",
+});
 
 const { isDark, themeMode, setTheme } = useTheme();
 
@@ -270,7 +284,7 @@ function handleCycleTheme() {
     const currentIndex = themeModes.indexOf(themeMode.value);
     const nextIndex = (currentIndex + 1) % themeModes.length;
     setTheme(themeModes[nextIndex]);
-    menuOpen.value = false;
+    closeMenu();
 }
 
 function handleMinimize() {
@@ -327,13 +341,31 @@ onBeforeUnmount(function () {
     document.removeEventListener("click", closeMenuOnOutsideClick);
 });
 
-function toggleMenu() {
-    menuOpen.value = !menuOpen.value;
+function toggleMenu(event) {
+    toggleExclusiveMenu("file");
+    if (!menuOpen.value) {
+        stopAutoUpdate();
+        return;
+    }
+    const anchor =
+        event && event.currentTarget instanceof Element ? event.currentTarget : null;
+    nextTick(() => {
+        if (menuOpen.value && dropdownRef.value) {
+            positionMenu(anchor, dropdownRef.value);
+        }
+    });
 }
 
 function closeMenu() {
-    menuOpen.value = false;
+    closeExclusiveMenu();
+    stopAutoUpdate();
 }
+
+watch(menuOpen, (isOpen) => {
+    if (!isOpen) {
+        stopAutoUpdate();
+    }
+});
 
 function closeMenuOnOutsideClick() {
     if (!menuOpen.value) return;
@@ -394,10 +426,8 @@ function handleSaveAs() {
 }
 
 .dropdown-menu {
+    /* 定位（left/top 等）由 useMenuPosition 动态计算，相对 .title-bar__file-menu */
     position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
     z-index: 100;
 }
 

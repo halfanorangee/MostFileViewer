@@ -45,6 +45,7 @@ MostFileViewer
 
 # Temporary or local-only files
 .task/
-/docs/
+/docs/*
+!/docs/media-preview-enhancement-design.md
 nul.download
 frontend/nul.download

@@ -13,9 +13,10 @@
       @node-context-menu="openContextMenu"
     />
     <div
-      v-if="contextMenu.open"
+      v-if="contextMenuOpen"
+      ref="contextMenuEl"
       class="menu-panel file-tree__context-menu"
-      :style="contextMenuStyle"
+      :style="menuStyle"
       @click.stop
       @contextmenu.prevent
     >
@@ -46,10 +47,12 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import FileTreeNode from './FileTreeNode.vue';
 import FileInfoDialog from './FileInfoDialog.vue';
 import { App } from '../../bindings/MostFileViewer';
+import { useMenuPosition } from '../composables/useMenuPosition';
+import { useExclusiveMenu } from '../composables/useExclusiveMenu';
 
 defineProps({
   nodes: {
@@ -69,16 +72,22 @@ defineProps({
 const emit = defineEmits(['open-file', 'load-folder', 'show-in-file-manager']);
 
 const contextMenu = reactive({
-  open: false,
-  x: 0,
-  y: 0,
   node: null
 });
+const {
+  isMenuOpen,
+  openMenu: openExclusiveMenu,
+  closeMenu: closeExclusiveMenu,
+} = useExclusiveMenu();
+const contextMenuOpen = computed(() => isMenuOpen('context'));
 
-const contextMenuStyle = computed(() => ({
-  left: `${contextMenu.x}px`,
-  top: `${contextMenu.y}px`
-}));
+const contextMenuEl = ref(null);
+
+// 右键菜单定位：空间不足时自动翻转方向/夹紧边界，仍放不下时改为菜单内部滚动
+const { menuStyle, positionMenu, stopAutoUpdate } = useMenuPosition({
+  placement: 'bottom',
+  align: 'start'
+});
 
 const fileInfoDialogVisible = ref(false);
 const fileInfoData = ref(null);
@@ -86,23 +95,35 @@ const fileInfoLoading = ref(false);
 const fileInfoError = ref('');
 
 onBeforeUnmount(() => {
+  closeContextMenu();
+  stopAutoUpdate();
   document.removeEventListener('click', closeContextMenu);
 });
 
 function openContextMenu({ node, x, y }) {
   document.removeEventListener('click', closeContextMenu);
-  contextMenu.open = true;
-  contextMenu.x = x;
-  contextMenu.y = y;
   contextMenu.node = node;
+  openExclusiveMenu('context');
+  nextTick(() => {
+    if (contextMenuOpen.value && contextMenuEl.value) {
+      positionMenu(null, contextMenuEl.value, { x, y });
+    }
+  });
   document.addEventListener('click', closeContextMenu, { once: true });
 }
 
 function closeContextMenu() {
-  contextMenu.open = false;
-  contextMenu.node = null;
-  document.removeEventListener('click', closeContextMenu);
+  closeExclusiveMenu();
 }
+
+watch(contextMenuOpen, (isOpen) => {
+  if (isOpen) {
+    return;
+  }
+  contextMenu.node = null;
+  stopAutoUpdate();
+  document.removeEventListener('click', closeContextMenu);
+});
 
 function handleShowInFileManager() {
   if (!contextMenu.node) {

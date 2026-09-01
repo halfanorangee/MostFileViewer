@@ -20,6 +20,11 @@ type dropItem struct {
 
 func main() {
 	appInstance := NewApp()
+	mediaSrv := newMediaServer()
+	if err := mediaSrv.Start(); err != nil {
+		log.Fatal(err)
+	}
+	appInstance.mediaServer = mediaSrv
 
 	app := application.New(application.Options{
 		Name:        "MostFileViewer",
@@ -33,6 +38,11 @@ func main() {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: false, // 多窗口时不应在关闭一个窗口后退出
 		},
+	})
+	app.OnShutdown(func() {
+		if err := mediaSrv.Close(); err != nil {
+			log.Printf("关闭媒体服务失败: %v", err)
+		}
 	})
 
 	startupSessions := appInstance.loadStartupSession()

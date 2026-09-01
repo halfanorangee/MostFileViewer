@@ -103,28 +103,61 @@
                                 </button>
                             </template>
                             <template v-else>
-                                <span>{{ folderName || "文件树" }}</span>
-                                <button
-                                    type="button"
-                                    class="pane-card__search-btn"
-                                    title="搜索"
-                                    @click="handleTreeSearch"
-                                >
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke-width="1.5"
-                                        stroke="currentColor"
-                                        class="pane-card__search-icon"
+                                <span class="pane-card__title">{{ folderName || "文件树" }}</span>
+                                <div class="pane-card__header-actions">
+                                    <button
+                                        type="button"
+                                        class="pane-card__search-btn"
+                                        :class="{
+                                            'pane-card__search-btn--busy':
+                                                treeRefreshing,
+                                        }"
+                                        title="刷新"
+                                        aria-label="刷新文件列表"
+                                        :disabled="treeRefreshing"
+                                        @click="handleRefreshTree"
                                     >
-                                        <path
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                            d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
-                                        />
-                                    </svg>
-                                </button>
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke-width="1.5"
+                                            stroke="currentColor"
+                                            class="pane-card__search-icon"
+                                            :class="{
+                                                'pane-card__search-icon--spinning':
+                                                    treeRefreshing,
+                                            }"
+                                        >
+                                            <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+                                            />
+                                        </svg>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="pane-card__search-btn"
+                                        title="搜索"
+                                        @click="handleTreeSearch"
+                                    >
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke-width="1.5"
+                                            stroke="currentColor"
+                                            class="pane-card__search-icon"
+                                        >
+                                            <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+                                            />
+                                        </svg>
+                                    </button>
+                                </div>
                             </template>
                         </div>
                         <FileTree
@@ -151,6 +184,9 @@
                             :tabs="openTabs"
                             :active-tab-path="activeTabPath"
                             :auto-save-enabled="autoSaveEnabled"
+                            :audio-queue-mode="audioQueueMode"
+                            :audio-has-prev="audioHasPrev"
+                            :audio-has-next="audioHasNext"
                             @change-tab="handleChangeTab"
                             @close-tab="handleCloseTab"
                             @preview-error="handlePreviewError"
@@ -163,6 +199,12 @@
                             @reorder-tab="handleReorderTab"
                             @new-tab="handleNewTab"
                             @auto-save-toggle="handleAutoSaveToggle"
+                            @media-error="handleMediaError"
+                            @media-reload="reloadMediaTab"
+                            @media-open-system="openMediaWithSystem"
+                            @request-prev="(path) => navigateAudioQueue(path, -1)"
+                            @request-next="(path, manual) => navigateAudioQueue(path, 1, manual)"
+                            @set-queue-mode="handleAudioQueueMode"
                         />
                     </div>
                 </section>
@@ -179,7 +221,12 @@ import FileTree from "./components/FileTree.vue";
 import PreviewTabs from "./components/PreviewTabs.vue";
 import { App } from "../bindings/MostFileViewer";
 import { useTheme } from "./composables/useTheme";
-import { detectSyntaxKey, inferExtensionFromSyntax } from "./composables/useFileTypes";
+import {
+    detectSyntaxKey,
+    getMediaType,
+    inferExtensionFromSyntax,
+} from "./composables/useFileTypes";
+import { getMediaCapability, mediaErrorMessage } from "./composables/useMediaPlayer";
 
 const selectedFolder = ref("");
 const treeData = ref([]);
@@ -187,11 +234,20 @@ const leftPaneWidth = ref(320);
 const sidebarOpen = ref(true);
 const openTabs = ref([]);
 const activeTabPath = ref("");
+const audioQueueMode = ref("off");
+const audioQueuePlayed = new Set();
+let mediaSourceVersionCounter = 0;
+
+function nextMediaSourceVersion() {
+    mediaSourceVersionCounter += 1;
+    return mediaSourceVersionCounter;
+}
 const previewTabs = ref(null);
 const globalError = ref("");
 const treeSearchActive = ref(false);
 const treeSearchQuery = ref("");
 const treeSearchInput = ref(null);
+const treeRefreshing = ref(false);
 let removeResizeListeners = null;
 let removeFilesDroppedListener = null;
 let removeThemeChangeListener = null;
@@ -384,6 +440,53 @@ const isActualFolderPreview = computed(() => {
     return true;
 });
 
+function findSiblingNodes(nodes, targetPath) {
+    for (const node of nodes || []) {
+        if (node.path === targetPath) {
+            return nodes;
+        }
+        const found = findSiblingNodes(node.children, targetPath);
+        if (found) {
+            return found;
+        }
+    }
+    return [];
+}
+
+const audioQueue = computed(() => {
+    const activePath = activeTabPath.value;
+    if (!activePath) {
+        return [];
+    }
+    return findSiblingNodes(treeData.value, activePath).filter(
+        (node) =>
+            node?.type === "file" &&
+            getPreviewType(node.extension) === "audio",
+    );
+});
+
+const audioQueueIndex = computed(() =>
+    audioQueue.value.findIndex((node) => node.path === activeTabPath.value),
+);
+
+const audioHasPrev = computed(
+    () => audioQueueIndex.value > 0,
+);
+
+const audioHasNext = computed(() => {
+    if (audioQueue.value.length < 2 || audioQueueIndex.value < 0) {
+        return false;
+    }
+    if (audioQueueMode.value === "shuffle") {
+        return audioQueue.value.some(
+            (node) =>
+                node.path !== activeTabPath.value &&
+                !audioQueuePlayed.has(node.path),
+        );
+    }
+    return audioQueueIndex.value < audioQueue.value.length - 1;
+});
+
 // 当前激活 tab 的元数据，用于标题栏菜单的「保存 / 另存为」可用性判断。
 // 语义与 CodePreview 原状态栏的 canSave / canSaveAs 保持一致：
 // - canSaveActiveTab：实文件 + dirty + ready（virtual 永远走另存为）
@@ -438,6 +541,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+    void Promise.all(openTabs.value.map((tab) => revokeTabMedia(tab)));
     stopResize();
     stopAutoSave();
     if (persistSessionTimer) {
@@ -618,7 +722,7 @@ async function openFileInWorkspace(filePath) {
     sidebarOpen.value = false; // 选择单个文件时关闭侧边栏
     clearAllAutoSaveDebounceTimers();
     clearAllLivePreviewTimers();
-    releaseAllTabPayloads();
+    await releaseAllTabPayloads();
     await nextTick();
     openTabs.value = [];
     activeTabPath.value = "";
@@ -665,6 +769,32 @@ function getPathExtension(path) {
     const name = getPathName(path).toLowerCase();
     const extensionStart = name.lastIndexOf(".");
     return extensionStart > 0 ? name.slice(extensionStart) : "";
+}
+
+// 统一 tab 的文件读取与预览源创建，调用方只负责处理 tab 版本和 UI 状态。
+async function loadTabPreview(path, fallbackExtension = "", sourceVersion = 0) {
+    const content = await App.ReadFile(path);
+    const previewType = getPreviewType(content.extension || fallbackExtension);
+    const isCodePreview = previewType === "code";
+    const isMediaPreview = previewType === "audio" || previewType === "video";
+    const loadedSource = isCodePreview
+        ? null
+        : await loadBinarySource(
+              content,
+              previewType,
+              isMediaPreview
+                  ? sourceVersion || nextMediaSourceVersion()
+                  : sourceVersion,
+          );
+
+    return {
+        content,
+        previewType,
+        isCodePreview,
+        isMediaPreview,
+        source: isMediaPreview ? loadedSource?.source || null : loadedSource,
+        media: isMediaPreview ? loadedSource?.media : undefined,
+    };
 }
 
 // 另存为对话框的建议文件名：
@@ -760,7 +890,7 @@ async function handleOpenFolder(folderPath) {
         sidebarOpen.value = true; // 选择文件夹时显示侧边栏
         clearAllAutoSaveDebounceTimers();
         clearAllLivePreviewTimers();
-        releaseAllTabPayloads();
+        await releaseAllTabPayloads();
         await nextTick();
         openTabs.value = [];
         activeTabPath.value = "";
@@ -793,13 +923,35 @@ async function handleLoadFolderChildren(node) {
     }
 }
 
+// 刷新文件列表：按当前根目录重新扫描整棵树。已打开的 tab 不受影响；
+// 同一根目录下后端不会重置 watcher / 白名单，已展开节点靠 path key 保留展开状态。
+async function handleRefreshTree() {
+    if (treeRefreshing.value || !selectedFolder.value) {
+        return;
+    }
+
+    treeRefreshing.value = true;
+    try {
+        treeData.value = await App.LoadFolderTree(selectedFolder.value);
+    } catch (error) {
+        // silently ignore，与打开文件夹失败的处理保持一致
+    } finally {
+        treeRefreshing.value = false;
+    }
+}
+
 async function openFileNode(node) {
+    const initialPreviewType = getPreviewType(node.extension);
+    const sourceVersion =
+        initialPreviewType === "audio" || initialPreviewType === "video"
+            ? nextMediaSourceVersion()
+            : 0;
     const tab = {
         path: node.path,
         name: node.name,
         extension: node.extension,
         status: "loading",
-        previewType: getPreviewType(node.extension),
+        previewType: initialPreviewType,
         source: null,
         content: "",
         encoding: "utf-8",
@@ -810,6 +962,16 @@ async function openFileNode(node) {
         contentVersion: 0,
         changeVersion: 0,
         savedVersion: 0,
+        media: sourceVersion
+            ? {
+                  token: "",
+                  sourceVersion,
+                  capability: "unknown",
+                  loadState: "idle",
+                  errorCode: "",
+                  errorMessage: "",
+              }
+            : undefined,
     };
 
     openTabs.value = [...openTabs.value, tab];
@@ -817,16 +979,19 @@ async function openFileNode(node) {
 
     try {
         await registerOpenPath(node.path);
-        const content = await App.ReadFile(node.path);
-        const previewType = getPreviewType(content.extension || node.extension);
-        const isCodePreview = previewType === "code";
-        const source = isCodePreview
-            ? null
-            : await loadBinarySource(content, previewType);
+        const loaded = await loadTabPreview(node.path, node.extension, sourceVersion);
+        const { content, previewType, isCodePreview, isMediaPreview } = loaded;
+        const currentTab = openTabs.value.find((item) => item.path === node.path);
+        if (!currentTab || (isMediaPreview && currentTab.media?.sourceVersion !== loaded.media?.sourceVersion)) {
+            await revokeMediaToken(loaded.media?.token);
+            return;
+        }
         updateTab(node.path, {
             extension: content.extension || node.extension,
             previewType,
-            source,
+            size: Number(content.size || 0),
+            source: loaded.source,
+            media: isMediaPreview ? loaded.media : undefined,
             content: isCodePreview ? content.content || "" : "",
             encoding: content.encoding || "utf-8",
             dirty: false,
@@ -877,7 +1042,7 @@ async function handleSelectFolder() {
         sidebarOpen.value = true; // 选择文件夹时显示侧边栏
         clearAllAutoSaveDebounceTimers();
         clearAllLivePreviewTimers();
-        releaseAllTabPayloads();
+        await releaseAllTabPayloads();
         await nextTick();
         openTabs.value = [];
         activeTabPath.value = "";
@@ -939,6 +1104,9 @@ async function handleFsChange(event) {
     if (!selectedFolder.value) {
         return;
     }
+    const hasExternalRename = (payload.changes || []).some(
+        (change) => change?.op === "rename",
+    );
 
     if (parent === selectedFolder.value) {
         // root 路径：重新扫根，按 path 合并替换顶层，保留 folder 节点的 loaded/children/hasChild
@@ -963,7 +1131,9 @@ async function handleFsChange(event) {
         });
         await nextTick();
         treeData.value = merged;
-        await reconcileRenamedTabs();
+        if (hasExternalRename) {
+            await reconcileRenamedTabs();
+        }
         return;
     }
 
@@ -995,6 +1165,9 @@ async function handleFsChange(event) {
             hasChild: fresh.length > 0,
         });
     }
+    if (hasExternalRename) {
+        await reconcileRenamedTabs();
+    }
 }
 
 // 去掉扩展名后的文件名（不含路径）用于「仅扩展名变化」识别
@@ -1009,14 +1182,30 @@ function stripExtName(path) {
 // 2) 旧 path 不在新 treeData 里，但存在同 stripExtName 的 newPath → 命中「仅扩展名变化」，改 path 并重读
 // 3) 否则视为被移动/重命名，标 error
 async function reconcileRenamedTabs() {
-    const newPaths = new Set(treeData.value.map((n) => n.path));
+    const newPaths = new Set();
     const pathByStem = new Map();
-    for (const n of treeData.value) {
-        pathByStem.set(stripExtName(n.path), n.path);
-    }
+    const collectPaths = (nodes) => {
+        for (const node of nodes || []) {
+            if (!node?.path) continue;
+            newPaths.add(node.path);
+            pathByStem.set(stripExtName(node.path), node.path);
+            collectPaths(node.children);
+        }
+    };
+    collectPaths(treeData.value);
     for (const tab of openTabs.value) {
         if (!tab.path || tab.virtual || tab.previewOnly) continue;
         if (newPaths.has(tab.path)) continue;
+
+        // watcher 事件与目录扫描存在时序差异。若文件已经回到原路径，
+        // 说明只是一次短暂的替换窗口，不应把 tab 标记成外部改名。
+        try {
+            await App.GetFileInfo(tab.path);
+            continue;
+        } catch (error) {
+            // 文件确实不存在时再继续判断是否改了扩展名或路径。
+        }
+
         const stem = stripExtName(tab.path);
         const candidate = pathByStem.get(stem);
         if (candidate && candidate !== tab.path) {
@@ -1038,6 +1227,8 @@ async function migrateTabToNewPath(tab, newPath) {
     const oldPath = tab.path;
     const newExt = getPathExtension(newPath);
     const newName = getPathName(newPath);
+    const sourceVersion = nextMediaSourceVersion();
+    await revokeTabMedia(tab);
     try {
         await unregisterOpenPath(oldPath);
     } catch (error) {
@@ -1050,8 +1241,16 @@ async function migrateTabToNewPath(tab, newPath) {
                   ...t,
                   path: newPath,
                   name: newName,
-                  extension: newExt,
-                  previewType: getPreviewType(newExt),
+                   extension: newExt,
+                   previewType: getPreviewType(newExt),
+                   media: {
+                       token: "",
+                       sourceVersion,
+                       capability: "unknown",
+                       loadState: "idle",
+                       errorCode: "",
+                       errorMessage: "",
+                   },
               }
             : t,
     );
@@ -1067,16 +1266,19 @@ async function migrateTabToNewPath(tab, newPath) {
 
     // 重新读内容
     try {
-        const content = await App.ReadFile(newPath);
-        const previewType = getPreviewType(content.extension || newExt);
-        const isCodePreview = previewType === "code";
-        const source = isCodePreview
-            ? null
-            : await loadBinarySource(content, previewType);
+        const loaded = await loadTabPreview(newPath, newExt, sourceVersion);
+        const { content, previewType, isCodePreview, isMediaPreview } = loaded;
+        const currentTab = openTabs.value.find((item) => item.path === newPath);
+        if (!currentTab || (isMediaPreview && currentTab.media?.sourceVersion !== loaded.media?.sourceVersion)) {
+            await revokeMediaToken(loaded.media?.token);
+            return;
+        }
         updateTab(newPath, {
             extension: content.extension || newExt,
             previewType,
-            source,
+            size: Number(content.size || 0),
+            source: loaded.source,
+            media: isMediaPreview ? loaded.media : undefined,
             content: isCodePreview ? content.content || "" : "",
             encoding: content.encoding || "utf-8",
             dirty: false,
@@ -1117,6 +1319,149 @@ function handleFileRemoved(event) {
 function handleChangeTab(path) {
     activeTabPath.value = path;
     schedulePersistWorkspaceSession();
+}
+
+function handleAudioQueueMode(mode) {
+    audioQueueMode.value = ["off", "sequential", "shuffle"].includes(mode)
+        ? mode
+        : "off";
+    audioQueuePlayed.clear();
+    if (activeTabPath.value) {
+        audioQueuePlayed.add(activeTabPath.value);
+    }
+}
+
+async function navigateAudioQueue(path, direction, manual = false) {
+    const queue = audioQueue.value;
+    const currentIndex = queue.findIndex((node) => node.path === path);
+    if (currentIndex < 0 || queue.length < 2) {
+        return;
+    }
+    if (!manual && audioQueueMode.value === "off") {
+        return;
+    }
+
+    let nextNode = null;
+    if (direction > 0 && audioQueueMode.value === "shuffle" && !manual) {
+        const remaining = queue.filter(
+            (node) =>
+                node.path !== path && !audioQueuePlayed.has(node.path),
+        );
+        if (!remaining.length) {
+            return;
+        }
+        nextNode = remaining[Math.floor(Math.random() * remaining.length)];
+    } else {
+        const nextIndex = currentIndex + direction;
+        if (nextIndex < 0 || nextIndex >= queue.length) {
+            return;
+        }
+        nextNode = queue[nextIndex];
+    }
+
+    audioQueuePlayed.add(path);
+    audioQueuePlayed.add(nextNode.path);
+    await handleOpenFile(nextNode);
+}
+
+async function revokeMediaToken(token) {
+    if (!token) {
+        return;
+    }
+    try {
+        await App.RevokeMediaToken(token);
+    } catch (error) {
+        // 回收是尽力而为；窗口关闭与服务端 TTL 仍会兜底。
+    }
+}
+
+async function revokeTabMedia(tab) {
+    await revokeMediaToken(tab?.media?.token);
+}
+
+function handleMediaError(path, payload) {
+    const tab = openTabs.value.find((item) => item.path === path);
+    if (!tab?.media) {
+        return;
+    }
+    const token = tab.media.token;
+    updateTab(path, {
+        media: {
+            ...tab.media,
+            token: "",
+            loadState: "failed",
+            errorCode: payload?.code || "unknown",
+            errorMessage:
+                payload?.message || mediaErrorMessage(payload?.code || "unknown"),
+        },
+    });
+    void revokeMediaToken(token);
+}
+
+async function openMediaWithSystem(path) {
+    try {
+        await App.OpenMediaWithSystem(path);
+    } catch (error) {
+        const tab = openTabs.value.find((item) => item.path === path);
+        if (tab?.media) {
+            updateTab(path, {
+                media: {
+                    ...tab.media,
+                    notice: normalizeError(error, "无法启动系统播放器"),
+                },
+            });
+        }
+    }
+}
+
+async function reloadMediaTab(path) {
+    const tab = openTabs.value.find((item) => item.path === path);
+    if (!tab || !["audio", "video"].includes(tab.previewType)) {
+        return;
+    }
+    const sourceVersion = nextMediaSourceVersion();
+    await revokeTabMedia(tab);
+    updateTab(path, {
+        source: null,
+        media: {
+            ...(tab.media || {}),
+            token: "",
+            sourceVersion,
+            loadState: "loading",
+            errorCode: "",
+            errorMessage: "",
+            notice: "",
+        },
+    });
+
+    try {
+        const loaded = await loadTabPreview(path, tab.extension, sourceVersion);
+        const { content, previewType } = loaded;
+        const latest = openTabs.value.find((item) => item.path === path);
+        if (!latest?.media || latest.media.sourceVersion !== sourceVersion) {
+            await revokeMediaToken(loaded.media?.token);
+            return;
+        }
+        updateTab(path, {
+            extension: content.extension || tab.extension,
+            previewType,
+            size: Number(content.size || 0),
+            source: loaded.source || null,
+            media: loaded.media || latest.media,
+        });
+    } catch (error) {
+        const latest = openTabs.value.find((item) => item.path === path);
+        if (latest?.media?.sourceVersion === sourceVersion) {
+            updateTab(path, {
+                media: {
+                    ...latest.media,
+                    loadState: "failed",
+                    errorCode: "unknown",
+                    errorMessage: normalizeError(error, "重新加载媒体失败"),
+                },
+            });
+        }
+    }
 }
 
 // 拖拽调整 tab 顺序：将 fromPath 移动到 toPath 的左/右侧。
@@ -1242,6 +1587,7 @@ async function handleCloseTab(path) {
 
     clearAutoSaveDebounceTimer(path);
     encodingChangeRequests.delete(path);
+    await revokeTabMedia(currentTab);
     releaseTabPayload(path);
     // 关闭源 tab 时清理其实时预览定时器；关闭预览 tab 时清理对应源的定时器。
     if (isPreviewOnly) {
@@ -1645,11 +1991,13 @@ function releaseTabPayload(path) {
     });
 }
 
-function releaseAllTabPayloads() {
+async function releaseAllTabPayloads() {
     encodingChangeRequests.clear();
     if (!openTabs.value.length) {
         return;
     }
+
+    await Promise.all(openTabs.value.map((tab) => revokeTabMedia(tab)));
 
     openTabs.value = openTabs.value.map((tab) => ({
         ...tab,
@@ -1681,30 +2029,35 @@ function updateTreeNode(nodes, path, patch) {
     });
 }
 
+// 在 getPreviewType 函数中添加音频和视频支持
 function getPreviewType(extension) {
-    const normalized = (extension || "").toLowerCase();
-    if (normalized === ".docx") {
-        return "word";
-    }
-    if (normalized === ".csv") {
-        return "csv";
-    }
-    if ([".xlsx", ".xlsm", ".xltx", ".xltm"].includes(normalized)) {
-        return "excel";
-    }
-    if ([".pptx", ".pptm", ".ppsx", ".ppsm"].includes(normalized)) {
-        return "ppt";
-    }
-    if (normalized === ".pdf") {
-        return "pdf";
-    }
-    if (isImageExtension(normalized)) {
-        return "image";
-    }
-    if (normalized === ".xls") {
-        return "unsupported";
-    }
-    return "code";
+  const normalized = (extension || "").toLowerCase()
+  if (normalized === ".docx") {
+    return "word"
+  }
+  if (normalized === ".csv") {
+    return "csv"
+  }
+  if ([".xlsx", ".xlsm", ".xltx", ".xltm"].includes(normalized)) {
+    return "excel"
+  }
+  if ([".pptx", ".pptm", ".ppsx", ".ppsm"].includes(normalized)) {
+    return "ppt"
+  }
+  if (normalized === ".pdf") {
+    return "pdf"
+  }
+  if (isImageExtension(normalized)) {
+    return "image"
+  }
+  const mediaType = getMediaType(normalized)
+  if (mediaType) {
+    return mediaType
+  }
+  if (normalized === ".xls") {
+    return "unsupported"
+  }
+  return "code"
 }
 
 function isImageExtension(extension) {
@@ -1721,9 +2074,41 @@ function isImageExtension(extension) {
     ].includes(extension);
 }
 
-async function loadBinarySource(content, previewType) {
+async function loadBinarySource(content, previewType, sourceVersion = 1) {
     if (!content) {
         return null;
+    }
+    // 音视频走 Range 流式：返回后端签发的 /media/<token> URL，
+    // <video>/<audio> 自带 Range 请求，磁盘按需读取，不占整文件内存。
+    if (previewType === "audio" || previewType === "video") {
+        const capability = getMediaCapability(previewType, content.extension);
+        if (capability === "unsupported") {
+            return {
+                source: null,
+                media: {
+                    token: "",
+                    sourceVersion,
+                    capability,
+                    loadState: "failed",
+                    errorCode: "unsupported",
+                    errorMessage: mediaErrorMessage("unsupported"),
+                },
+            };
+        }
+        const tokenInfo = await App.RegisterMediaToken(content.path);
+        return {
+            source: tokenInfo.url,
+            media: {
+                token: tokenInfo.token,
+                sourceVersion,
+                capability,
+                loadState: "idle",
+                errorCode: "",
+                errorMessage: "",
+                size: Number(tokenInfo.size || content.size || 0),
+                modifiedAt: tokenInfo.modifiedAt || null,
+            },
+        };
     }
     if (["word", "excel", "ppt", "image", "pdf"].includes(previewType)) {
         return readFileInChunks(content.path, Number(content.size || 0));
@@ -1919,6 +2304,19 @@ function stopAutoSave() {
     font-weight: 600;
 }
 
+.pane-card__title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pane-card__header-actions {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
 .pane-card__search-btn {
     display: inline-flex;
     align-items: center;
@@ -1934,7 +2332,8 @@ function stopAutoSave() {
     transition: opacity 0.15s ease, background-color 0.15s ease;
 }
 
-.workspace__sidebar:hover .pane-card__search-btn {
+.workspace__sidebar:hover .pane-card__search-btn,
+.pane-card__search-btn--busy {
     opacity: 1;
     visibility: visible;
 }
@@ -1970,6 +2369,24 @@ function stopAutoSave() {
 
 .pane-card__search-input::placeholder {
     color: var(--text-muted, #999);
+}
+
+.pane-card__search-btn:disabled {
+    cursor: default;
+}
+
+.pane-card__search-btn:disabled:hover {
+    background-color: transparent;
+}
+
+.pane-card__search-icon--spinning {
+    animation: pane-card-icon-spin 0.8s linear infinite;
+}
+
+@keyframes pane-card-icon-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .pane-card__search-btn--close {

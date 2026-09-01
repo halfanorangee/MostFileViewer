@@ -90,6 +90,47 @@
                                 @error="(err) => handleRenderError(tab.path, err)"
                             />
 
+                            <template v-else-if="tab.previewType === 'audio'">
+                                <AudioPreview
+                                    v-if="tab.path === activeTabPath"
+                                    class="audio-preview"
+                                    :src="tab.source"
+                                    :extension="tab.extension"
+                                    :media="tab.media"
+                                    :queue-mode="audioQueueMode"
+                                    :has-prev="audioHasPrev"
+                                    :has-next="audioHasNext"
+                                    @media-error="
+                                        (payload) => emit('media-error', tab.path, payload)
+                                    "
+                                    @media-reload="emit('media-reload', tab.path)"
+                                    @media-open-system="
+                                        emit('media-open-system', tab.path)
+                                    "
+                                    @request-prev="emit('request-prev', tab.path)"
+                                    @request-next="(manual) => emit('request-next', tab.path, manual)"
+                                    @set-queue-mode="emit('set-queue-mode', $event)"
+                                />
+                            </template>
+
+                            <template v-else-if="tab.previewType === 'video'">
+                                <VideoPreview
+                                    v-if="tab.path === activeTabPath"
+                                    class="video-preview"
+                                    :src="tab.source"
+                                    :path="tab.path"
+                                    :extension="tab.extension"
+                                    :media="tab.media"
+                                    @media-error="
+                                        (payload) => emit('media-error', tab.path, payload)
+                                    "
+                                    @media-reload="emit('media-reload', tab.path)"
+                                    @media-open-system="
+                                        emit('media-open-system', tab.path)
+                                    "
+                                />
+                            </template>
+
                             <div
                                 v-else-if="tab.previewType === 'unsupported'"
                                 class="preview-tabs__state preview-tabs__state--error"
@@ -176,6 +217,8 @@ const WordPreview = defineAsyncComponent(() => import("./WordPreview.vue"));
 const PptPreview = defineAsyncComponent(() => import("./PptPreview.vue"));
 const PdfPreview = defineAsyncComponent(() => import("./PdfPreview.vue"));
 const ImagePreview = defineAsyncComponent(() => import("./ImagePreview.vue"));
+const AudioPreview = defineAsyncComponent(() => import("./AudioPreview.vue"));
+const VideoPreview = defineAsyncComponent(() => import("./VideoPreview.vue"));
 const CodePreview = defineAsyncComponent(() => import("./CodePreview.vue"));
 const PreviewPane = defineAsyncComponent(() => import("./PreviewPane.vue"));
 
@@ -192,6 +235,18 @@ const props = defineProps({
         type: Boolean,
         default: true,
     },
+    audioQueueMode: {
+        type: String,
+        default: "off",
+    },
+    audioHasPrev: {
+        type: Boolean,
+        default: false,
+    },
+    audioHasNext: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const emit = defineEmits([
@@ -207,6 +262,12 @@ const emit = defineEmits([
     "reorder-tab",
     "new-tab",
     "auto-save-toggle",
+    "media-error",
+    "media-reload",
+    "media-open-system",
+    "request-prev",
+    "request-next",
+    "set-queue-mode",
 ]);
 
 const codePreviewRefs = ref({});
@@ -301,7 +362,6 @@ function renderTabTitle(tab) {
             ),
         );
 
-        // 添加关闭按钮
         titleChildren.push(
             h(
                 "button",

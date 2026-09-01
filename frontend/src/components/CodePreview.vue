@@ -303,6 +303,7 @@ import {
     editorTheme,
 } from "../composables/useEditorTheme.js";
 import { createWebPreviewResizer } from "../composables/useWebPreviewResizer.js";
+import { useExclusiveMenu } from "../composables/useExclusiveMenu.js";
 import "./markdown-preview.css";
 
 const props = defineProps({
@@ -360,8 +361,13 @@ const emit = defineEmits([
 const selectedSyntax = ref(detectSyntaxKey(props.extension, props.name));
 
 // 文件格式 / 编码下拉菜单的展开状态。两者互斥，开启其中一个时关闭另一个。
-const syntaxMenuOpen = ref(false);
-const encodingMenuOpen = ref(false);
+const {
+    isMenuOpen,
+    toggleMenu: toggleExclusiveMenu,
+    closeMenu: closeExclusiveMenu,
+} = useExclusiveMenu();
+const syntaxMenuOpen = computed(() => isMenuOpen("syntax"));
+const encodingMenuOpen = computed(() => isMenuOpen("encoding"));
 
 const currentSyntaxLabel = computed(() => {
     const match = syntaxOptions.find(
@@ -381,29 +387,22 @@ function toggleSyntaxMenu() {
     if (props.encodingLoading || syncingDocument.value) {
         return;
     }
-    syntaxMenuOpen.value = !syntaxMenuOpen.value;
-    if (syntaxMenuOpen.value) {
-        encodingMenuOpen.value = false;
-    }
+    toggleExclusiveMenu("syntax");
 }
 
 function toggleEncodingMenu() {
     if (props.encodingLoading || syncingDocument.value) {
         return;
     }
-    encodingMenuOpen.value = !encodingMenuOpen.value;
-    if (encodingMenuOpen.value) {
-        syntaxMenuOpen.value = false;
-    }
+    toggleExclusiveMenu("encoding");
 }
 
 function closeAllMenus() {
-    syntaxMenuOpen.value = false;
-    encodingMenuOpen.value = false;
+    closeExclusiveMenu();
 }
 
 function handleSyntaxSelect(value) {
-    syntaxMenuOpen.value = false;
+    closeAllMenus();
     if (value === selectedSyntax.value) {
         return;
     }
@@ -411,7 +410,7 @@ function handleSyntaxSelect(value) {
 }
 
 function handleEncodingSelect(value) {
-    encodingMenuOpen.value = false;
+    closeAllMenus();
     if (value === selectedEncoding.value) {
         return;
     }

@@ -41,6 +41,50 @@ export const syntaxOptions = [
     { label: "YAML", value: "yaml" },
 ];
 
+// Central media definition used by preview routing and MIME capability checks.
+export const MEDIA_TYPES = Object.freeze({
+    audio: Object.freeze({
+        extensions: Object.freeze([
+            ".mp3", ".wav", ".ogg", ".oga", ".flac", ".m4a", ".aac", ".wma",
+        ]),
+        mime: Object.freeze({
+            ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg",
+            ".oga": "audio/ogg", ".flac": "audio/flac", ".m4a": "audio/mp4",
+            ".aac": "audio/aac", ".wma": "audio/x-ms-wma",
+        }),
+    }),
+    video: Object.freeze({
+        extensions: Object.freeze([
+            ".mp4", ".webm", ".mov", ".avi", ".mkv", ".flv", ".wmv",
+        ]),
+        mime: Object.freeze({
+            ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+            ".avi": "video/x-msvideo", ".mkv": "video/x-matroska",
+            ".flv": "video/x-flv", ".wmv": "video/x-ms-wmv",
+        }),
+    }),
+});
+
+export const MEDIA_MIME_BY_EXTENSION = Object.freeze({
+    ...MEDIA_TYPES.audio.mime,
+    ...MEDIA_TYPES.video.mime,
+});
+
+export function getMediaType(extension) {
+    const normalized = (extension || "").toLowerCase();
+    if (MEDIA_TYPES.audio.extensions.includes(normalized)) return "audio";
+    if (MEDIA_TYPES.video.extensions.includes(normalized)) return "video";
+    return "";
+}
+
+export function isAudioExtension(extension) {
+    return getMediaType(extension) === "audio";
+}
+
+export function isVideoExtension(extension) {
+    return getMediaType(extension) === "video";
+}
+
 // 根据文件扩展名与文件名推断默认语法键。
 export function detectSyntaxKey(extension, name) {
     const normalizedName = (name || "").toLowerCase();

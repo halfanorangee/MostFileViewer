@@ -31,12 +31,18 @@ import (
 
 // windowState 保存单个窗口的隔离状态
 type windowState struct {
-	currentRoot  string
-	allowedFiles map[string]struct{}
-	openPaths    map[string]struct{} // 当前窗口已打开的文件/文件夹路径集合
-	mu           sync.Mutex
-	watcher      *fsnotify.Watcher     // 当前工作区的 fsnotify 监听器；nil 表示未启动或启动失败
-	watchedDirs  map[string]struct{}   // 已加入 watcher 的目录（绝对路径），单调增长；窗口关闭/工作区切换时清空
+	currentRoot    string
+	allowedFiles   map[string]struct{}
+	openPaths      map[string]struct{}           // 当前窗口已打开的文件/文件夹路径集合
+	internalWrites map[string]internalWriteState // 应用自身正在执行或刚完成的保存路径
+	mu             sync.Mutex
+	watcher        *fsnotify.Watcher   // 当前工作区的 fsnotify 监听器；nil 表示未启动或启动失败
+	watchedDirs    map[string]struct{} // 已加入 watcher 的目录（绝对路径），单调增长；窗口关闭/工作区切换时清空
+}
+
+type internalWriteState struct {
+	active     int
+	quietUntil time.Time
 }
 
 type App struct {
@@ -47,6 +53,7 @@ type App struct {
 	windowSessions  map[uint]WindowSession
 	activeWindows   map[uint]struct{}
 	wailsApp        *application.App // 由 main.go 在 app.Run 之前注入，用于按窗口 EmitEvent
+	mediaServer     *mediaServer     // 由 main.go 在 app.Run 之前注入，用于给视频/音频分配 Range 流式 token
 }
 
 type FileTreeNode struct {
@@ -70,6 +77,20 @@ type FsChangeItem struct {
 	Path  string `json:"path"`
 	Op    string `json:"op"`    // create/remove/rename/write/chmod，合并时取最高优先级
 	IsDir bool   `json:"isDir"` // flush 时由 os.Stat 决定
+}
+
+const internalWriteQuietPeriod = 750 * time.Millisecond
+
+func normalizeWatchPath(path string) string {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	normalized := filepath.Clean(absPath)
+	if runtime.GOOS == "windows" {
+		normalized = strings.ToLower(normalized)
+	}
+	return normalized
 }
 
 // fileRemovedPayload 是独立事件，给 tab 联动专用：避免在 fs-change 处理完后还要二次扫所有 tab。
@@ -125,6 +146,10 @@ type AppSession struct {
 
 var revealPathInFileManager = openInFileManager
 
+// openMediaWithSystemCaller 通过包级变量间接调用平台实现，测试中可替换为 stub，
+// 避免单测真实启动外部播放器。
+var openMediaWithSystemCaller = openMediaWithSystem
+
 func NewApp() *App {
 	return &App{
 		restoreSessions: make(map[uint]*WindowSession),
@@ -149,10 +174,70 @@ func (a *App) getOrCreateState(ctx context.Context) *windowState {
 		return &windowState{allowedFiles: make(map[string]struct{})}
 	}
 	actual, _ := a.states.LoadOrStore(id, &windowState{
-		allowedFiles: make(map[string]struct{}),
-		openPaths:    make(map[string]struct{}),
+		allowedFiles:   make(map[string]struct{}),
+		openPaths:      make(map[string]struct{}),
+		internalWrites: make(map[string]internalWriteState),
 	})
 	return actual.(*windowState)
+}
+
+// beginInternalWrite marks a save initiated by this application. fsnotify may
+// report the replace as rename/remove/create; those events must not be treated
+// as an external move of the open tab.
+func (a *App) beginInternalWrite(ctx context.Context, path string) func() {
+	state := a.getOrCreateState(ctx)
+	key := normalizeWatchPath(path)
+	state.mu.Lock()
+	if state.internalWrites == nil {
+		state.internalWrites = make(map[string]internalWriteState)
+	}
+	current := state.internalWrites[key]
+	current.active++
+	current.quietUntil = time.Time{}
+	state.internalWrites[key] = current
+	state.mu.Unlock()
+
+	return func() {
+		state.mu.Lock()
+		if current, ok := state.internalWrites[key]; ok {
+			if current.active > 0 {
+				current.active--
+			}
+			if current.active == 0 {
+				current.quietUntil = time.Now().Add(internalWriteQuietPeriod)
+			}
+			state.internalWrites[key] = current
+		}
+		state.mu.Unlock()
+	}
+}
+
+func (a *App) isInternalWrite(windowID uint, path string) bool {
+	if windowID == 0 {
+		return false
+	}
+	value, ok := a.states.Load(windowID)
+	if !ok {
+		return false
+	}
+	state := value.(*windowState)
+	key := normalizeWatchPath(path)
+	now := time.Now()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	for candidate, write := range state.internalWrites {
+		if write.active == 0 && now.After(write.quietUntil) {
+			delete(state.internalWrites, candidate)
+		}
+	}
+	write, ok := state.internalWrites[key]
+	return ok && (write.active > 0 || write.quietUntil.After(now))
+}
+
+func isAtomicTempPath(path string) bool {
+	name := strings.ToLower(filepath.Base(path))
+	return strings.Contains(name, ".tmp-") || strings.Contains(name, ".bak-")
 }
 
 // canonicalizePath 对路径进行统一规范化，用于去重比较
@@ -273,14 +358,19 @@ func (a *App) LoadFolderTree(ctx context.Context, root string) ([]FileTreeNode, 
 
 	state := a.getOrCreateState(ctx)
 	state.mu.Lock()
-	state.currentRoot = cleanRoot
-	state.allowedFiles = make(map[string]struct{})
+	sameRoot := normalizeWatchPath(state.currentRoot) == normalizeWatchPath(cleanRoot)
+	if !sameRoot {
+		state.currentRoot = cleanRoot
+		state.allowedFiles = make(map[string]struct{})
+	}
 	state.mu.Unlock()
 
-	// 启动/重建工作区监听器：旧 watcher 关闭后从空集开始；Add 失败仅 log，不阻断树返回。
-	a.resetWatcher(state, cleanRoot)
-	if err := a.addWatchDir(state, cleanRoot); err != nil {
-		log.Printf("fswatch: Add 根目录失败 (window=%d, root=%s): %v", windowIDFromCtx(ctx), cleanRoot, err)
+	// 切换工作区时重建 watcher；同一根目录刷新只重扫树，保留已展开目录的监听与白名单。
+	if !sameRoot {
+		a.resetWatcher(state, cleanRoot)
+		if err := a.addWatchDir(state, cleanRoot); err != nil {
+			log.Printf("fswatch: Add 根目录失败 (window=%d, root=%s): %v", windowIDFromCtx(ctx), cleanRoot, err)
+		}
 	}
 	return nodes, nil
 }
@@ -531,8 +621,17 @@ func (a *App) consumeWatcherEvents(windowID uint, watcher *fsnotify.Watcher) {
 				}
 				return
 			}
+			// 原子保存会在同一目录创建 .tmp-* / .bak-* 文件；这些是实现细节，
+			// 不应刷新文件树，也不应参与外部改名/删除判断。
+			if isAtomicTempPath(event.Name) {
+				continue
+			}
 			parent := filepath.Dir(event.Name)
 			op := toOp(event.Op)
+			if a.isInternalWrite(windowID, event.Name) {
+				// 自身保存即使被 Windows 报告为 rename/remove，也只是 write。
+				op = "write"
+			}
 
 			// 防抖：如果已有 timer，停止并重置
 			if t, ok := timers[parent]; ok {
@@ -584,7 +683,7 @@ func (a *App) readFile(ctx context.Context, path string, requestedEncoding strin
 		Size:      info.Size(),
 	}
 
-	if isOfficePreviewExtension(extension) || isImagePreviewExtension(extension) || isPdfPreviewExtension(extension) {
+	if isOfficePreviewExtension(extension) || isImagePreviewExtension(extension) || isPdfPreviewExtension(extension) || isMediaPreviewExtension(extension) {
 		return content, nil
 	}
 
@@ -655,6 +754,280 @@ func (a *App) ReadFileChunk(ctx context.Context, path string, offset int64, size
 	}, nil
 }
 
+// isMediaPreviewExtension 判断给定后缀是否走音视频 Range 流式预览。
+// 命中后前端不再把整文件读入 ArrayBuffer，而是请求后端签发一个 /media/<token>
+// 的临时 URL，由 <video>/<audio> 直接走 HTTP Range 拉取片段。
+var mediaPreviewExtensions = map[string]struct{}{
+	".mp3": {}, ".wav": {}, ".ogg": {}, ".oga": {}, ".flac": {}, ".m4a": {}, ".aac": {}, ".wma": {},
+	".mp4": {}, ".webm": {}, ".mov": {}, ".avi": {}, ".mkv": {}, ".flv": {}, ".wmv": {},
+}
+
+func isMediaPreviewExtension(extension string) bool {
+	_, ok := mediaPreviewExtensions[strings.ToLower(extension)]
+	return ok
+}
+
+// MediaTokenResult 是 RegisterMediaToken 的返回值。前端拿到 token 后拼成
+// `/media/<token>` 即可交给 <video>/<audio>；ModifiedAt 供前端在重新加载时
+// 判断文件是否已被外部替换。
+type MediaTokenResult struct {
+	Token      string    `json:"token"`
+	URL        string    `json:"url"`
+	Size       int64     `json:"size"`
+	ModifiedAt time.Time `json:"modifiedAt"`
+}
+
+// RegisterMediaToken 给指定文件签发一个短时 token，并把拼好的 URL 返回给前端。
+// 仅允许音视频后缀：避免被滥用做任意文件代理。
+func (a *App) RegisterMediaToken(ctx context.Context, path string) (MediaTokenResult, error) {
+	cleanPath, info, err := a.validateFilePath(ctx, path)
+	if err != nil {
+		return MediaTokenResult{}, err
+	}
+	extension := strings.ToLower(filepath.Ext(info.Name()))
+	if !isMediaPreviewExtension(extension) {
+		return MediaTokenResult{}, errors.New("该文件类型不支持走媒体流式预览")
+	}
+	if a.mediaServer == nil {
+		return MediaTokenResult{}, errors.New("媒体服务未初始化")
+	}
+
+	token, err := a.mediaServer.Register(cleanPath, info.Size(), info.ModTime().UnixNano(), windowIDFromCtx(ctx))
+	if err != nil {
+		return MediaTokenResult{}, err
+	}
+	mediaURL, err := a.mediaServer.URL(token)
+	if err != nil {
+		return MediaTokenResult{}, err
+	}
+	return MediaTokenResult{
+		Token:      token,
+		URL:        mediaURL,
+		Size:       info.Size(),
+		ModifiedAt: info.ModTime(),
+	}, nil
+}
+
+// RevokeMediaToken 回收当前窗口名下的一个媒体 token。重复回收幂等（返回成功）；
+// token 存在但属于其他窗口时返回权限错误。
+func (a *App) RevokeMediaToken(ctx context.Context, token string) error {
+	if a.mediaServer == nil {
+		return errors.New("媒体服务未初始化")
+	}
+	if !isMediaTokenFormat(token) {
+		return errors.New("无效的媒体 token")
+	}
+	_, foreign := a.mediaServer.Revoke(token, windowIDFromCtx(ctx))
+	if foreign {
+		return errors.New("不能回收其他窗口的媒体 token")
+	}
+	return nil
+}
+
+// isMediaTokenFormat 校验 token 形如 128bit 十六进制（32 个小写/大写十六进制字符）。
+func isMediaTokenFormat(token string) bool {
+	if len(token) != 32 {
+		return false
+	}
+	for _, r := range token {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		case r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// OpenMediaWithSystem 以系统默认关联程序打开已授权的媒体文件。
+// WebView 无法播放的编码（MKV/AVI 等）由系统播放器兜底；只接收文件路径，
+// 不把 loopback token URL 扩散给外部进程。
+func (a *App) OpenMediaWithSystem(ctx context.Context, path string) error {
+	cleanPath, info, err := a.validateFilePath(ctx, path)
+	if err != nil {
+		return err
+	}
+	extension := strings.ToLower(filepath.Ext(info.Name()))
+	if !isMediaPreviewExtension(extension) {
+		return errors.New("仅支持用系统播放器打开音视频文件")
+	}
+	if err := openMediaWithSystemCaller(cleanPath); err != nil {
+		return fmt.Errorf("使用系统默认程序打开失败: %w", err)
+	}
+	return nil
+}
+
+// subtitleExtensions 是支持外挂加载的字幕文件扩展名（小写，含点）。
+var subtitleExtensions = map[string]struct{}{
+	".vtt": {},
+	".srt": {},
+	".ass": {},
+	".ssa": {},
+}
+
+// maxSubtitleFileSize 限制字幕文件大小，避免把超大文件整体读入内存。
+const maxSubtitleFileSize = 10 << 20 // 10MB
+
+// ListSiblingSubtitles 查找与媒体文件同目录、同主文件名（含语言后缀变体，
+// 如 movie.chs.vtt）的外挂字幕文件。仅返回当前窗口授权范围内的普通
+// 文件并把结果加入白名单；没有匹配时返回空列表。
+func (a *App) ListSiblingSubtitles(ctx context.Context, path string) ([]string, error) {
+	cleanPath, info, err := a.validateFilePath(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if !isMediaPreviewExtension(strings.ToLower(filepath.Ext(info.Name()))) {
+		return nil, errors.New("仅支持为音视频文件查找同名字幕")
+	}
+
+	base := strings.TrimSuffix(info.Name(), filepath.Ext(info.Name()))
+	dir := filepath.Dir(cleanPath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("扫描同名字幕失败: %w", err)
+	}
+
+	state := a.getOrCreateState(ctx)
+	var subtitlePaths []string
+	for _, entry := range entries {
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if _, ok := subtitleExtensions[ext]; !ok {
+			continue
+		}
+		stem := strings.TrimSuffix(name, filepath.Ext(name))
+		if stem != base && !strings.HasPrefix(stem, base+".") {
+			continue
+		}
+		subtitlePath := filepath.Join(dir, name)
+
+		state.mu.Lock()
+		withinRoot := isPathWithinRoot(state.currentRoot, subtitlePath)
+		allowed := withinRoot || isAllowedFile(state, subtitlePath)
+		if allowed {
+			allowFile(state, subtitlePath)
+		}
+		state.mu.Unlock()
+		if !allowed {
+			continue
+		}
+
+		subtitleInfo, statErr := entry.Info()
+		if statErr != nil || !subtitleInfo.Mode().IsRegular() || subtitleInfo.Size() > maxSubtitleFileSize {
+			continue
+		}
+		subtitlePaths = append(subtitlePaths, subtitlePath)
+	}
+
+	sort.Strings(subtitlePaths)
+	return subtitlePaths, nil
+}
+
+// PickSubtitleFile 弹出系统文件选择框，让用户挑选本地字幕文件。
+// 用户取消时返回空串；选中后将文件加入当前窗口白名单，随后可经 ReadFile
+// 读取内容（读取链路自带编码检测，GBK 等编码的文本字幕也能正确解码）。
+func (a *App) PickSubtitleFile(ctx context.Context) (string, error) {
+	dialog := application.Get().Dialog.OpenFile().
+		CanChooseDirectories(false).
+		CanChooseFiles(true).
+		SetTitle("选择字幕文件").
+		AddFilter("字幕文件 (*.vtt;*.srt;*.ass;*.ssa)", "*.vtt;*.srt;*.ass;*.ssa").
+		AddFilter("所有文件", "*.*")
+
+	// 多窗口下将对话框归属到调用窗口
+	if win, ok := ctx.Value(application.WindowKey).(application.Window); ok {
+		dialog.AttachToWindow(win)
+	}
+
+	selectedPath, err := dialog.PromptForSingleSelection()
+	if err != nil {
+		// Wails v3 在用户主动关闭/取消对话框时返回 cfd.ErrorCancelled（文本为 "cancelled by user"）。
+		// cfd 包位于 internal/ 路径，外部模块无法 import，精确字符串匹配是当前唯一可行的检测方式。
+		// 该 sentinel 在 wails/v3 多 alpha 版本下文本保持稳定。
+		if err.Error() == "cancelled by user" {
+			return "", nil
+		}
+		return "", fmt.Errorf("打开文件选择框失败: %w", err)
+	}
+	if selectedPath == "" {
+		return "", nil
+	}
+
+	cleanPath, err := filepath.Abs(selectedPath)
+	if err != nil {
+		return "", fmt.Errorf("解析字幕路径失败: %w", err)
+	}
+
+	info, err := os.Stat(cleanPath)
+	if err != nil {
+		return "", fmt.Errorf("字幕文件不存在或无法访问: %w", err)
+	}
+	if info.IsDir() || !info.Mode().IsRegular() {
+		return "", errors.New("所选路径不是普通文件")
+	}
+	if info.Size() > maxSubtitleFileSize {
+		return "", errors.New("字幕文件过大（超过 10MB）")
+	}
+
+	ext := strings.ToLower(filepath.Ext(info.Name()))
+	if _, ok := subtitleExtensions[ext]; !ok {
+		return "", fmt.Errorf("不支持的字幕格式: %s（仅支持 .vtt / .srt / .ass / .ssa）", ext)
+	}
+
+	state := a.getOrCreateState(ctx)
+	state.mu.Lock()
+	allowFile(state, cleanPath)
+	state.mu.Unlock()
+	return cleanPath, nil
+}
+
+func isMatroskaPreviewExtension(ext string) bool {
+	switch ext {
+	case ".mkv", ".webm":
+		return true
+	default:
+		return false
+	}
+}
+
+// ListEmbeddedSubtitles 列出 MKV/WebM 容器内可提取的文本字幕轨（S_TEXT/UTF8、
+// WebVTT、ASS/SSA）。Chromium 只会把内嵌 WebVTT 暴露为 textTracks，常见的
+// SRT/ASS 轨需要在后端解析容器。图像字幕（PGS/VobSub）无法在应用内渲染，不列入。
+// 非 Matroska 文件或解析失败时返回空列表，不阻断播放。
+func (a *App) ListEmbeddedSubtitles(ctx context.Context, path string) ([]EmbeddedSubtitleTrack, error) {
+	cleanPath, info, err := a.validateFilePath(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if !isMatroskaPreviewExtension(strings.ToLower(filepath.Ext(info.Name()))) {
+		return []EmbeddedSubtitleTrack{}, nil
+	}
+	tracks, err := listMatroskaSubtitleTracks(cleanPath)
+	if err != nil {
+		log.Printf("mkv: 列出内嵌字幕失败: %v", err)
+		return []EmbeddedSubtitleTrack{}, nil
+	}
+	if tracks == nil {
+		return []EmbeddedSubtitleTrack{}, nil
+	}
+	return tracks, nil
+}
+
+// ReadEmbeddedSubtitle 把指定 TrackNumber 的内嵌文本字幕提取为 WebVTT。
+// 仅允许当前窗口已授权的 MKV/WebM 文件；图像轨或空轨返回可展示的错误。
+func (a *App) ReadEmbeddedSubtitle(ctx context.Context, path string, trackNumber int) (string, error) {
+	cleanPath, info, err := a.validateFilePath(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	if !isMatroskaPreviewExtension(strings.ToLower(filepath.Ext(info.Name()))) {
+		return "", errors.New("仅支持从 MKV/WebM 提取内嵌字幕")
+	}
+	return extractMatroskaSubtitle(cleanPath, trackNumber)
+}
+
 // SaveFile 把已存在的文本文件按指定编码原子写回。
 func (a *App) SaveFile(ctx context.Context, path string, content string, encoding string) error {
 	cleanPath, info, err := a.validateFilePath(ctx, path)
@@ -681,6 +1054,8 @@ func (a *App) SaveFile(ctx context.Context, path string, content string, encodin
 		return fmt.Errorf("编码文件内容失败: %w", err)
 	}
 
+	endInternalWrite := a.beginInternalWrite(ctx, cleanPath)
+	defer endInternalWrite()
 	if err := writeFileAtomically(cleanPath, encodedContent, info.Mode().Perm()); err != nil {
 		return fmt.Errorf("保存文件失败: %w", err)
 	}
@@ -743,6 +1118,8 @@ func (a *App) SaveFileAs(ctx context.Context, suggestedName string, content stri
 		return "", fmt.Errorf("编码文件内容失败: %w", err)
 	}
 
+	endInternalWrite := a.beginInternalWrite(ctx, cleanPath)
+	defer endInternalWrite()
 	if err := writeFileAtomically(cleanPath, encodedContent, perm); err != nil {
 		return "", fmt.Errorf("保存文件失败: %w", err)
 	}
@@ -931,58 +1308,11 @@ func writeFileAtomically(path string, data []byte, perm os.FileMode) error {
 	if err := os.Chmod(tmpName, perm); err != nil {
 		return err
 	}
-	if runtime.GOOS == "windows" {
-		if err := replaceFileOnWindows(path, tmpName); err != nil {
-			return err
-		}
-	} else if err := os.Rename(tmpName, path); err != nil {
+	if err := replaceFileAtomically(path, tmpName); err != nil {
 		return err
 	}
 
 	removeTemp = false
-	return nil
-}
-
-func replaceFileOnWindows(path string, tmpName string) error {
-	// 目标文件可能不存在（SaveFileAs 首次落地的新文件），直接 rename tmp 即可，
-	// 不需要走"先备份再替换"的流程——没有原文件可备份。
-	if _, err := os.Stat(path); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		return os.Rename(tmpName, path)
-	}
-
-	backup, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".bak-*")
-	if err != nil {
-		return err
-	}
-	backupName := backup.Name()
-	if err := backup.Close(); err != nil {
-		_ = os.Remove(backupName)
-		return err
-	}
-	if err := os.Remove(backupName); err != nil {
-		return err
-	}
-
-	backupMoved := false
-	defer func() {
-		if backupMoved {
-			_ = os.Remove(backupName)
-		}
-	}()
-
-	if err := os.Rename(path, backupName); err != nil {
-		return err
-	}
-	backupMoved = true
-
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Rename(backupName, path)
-		return err
-	}
-
 	return nil
 }
 
@@ -1831,5 +2161,9 @@ func (a *App) cleanupWindowState(windowID uint) {
 	// Close 必须在 states.Delete 之后、goroutine 检查 state 之前；幂等，重复调用安全
 	if watcherToClose != nil {
 		_ = watcherToClose.Close()
+	}
+	// 收回该窗口名下的所有 media token，避免窗口关闭后旧 token 仍能访问文件
+	if a.mediaServer != nil {
+		a.mediaServer.RevokeWindow(windowID)
 	}
 }
