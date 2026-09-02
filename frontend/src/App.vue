@@ -12,7 +12,7 @@
         @save-as="handleSaveAsActiveTab"
     />
     <main class="page-shell">
-        <section v-if="!selectedFolder" class="hero">
+        <section v-if="workspaceMode === 'empty'" class="hero">
             <div class="hero__panel">
                 <div
                     class="hero__dropzone"
@@ -221,14 +221,18 @@ import FileTree from "./components/FileTree.vue";
 import PreviewTabs from "./components/PreviewTabs.vue";
 import { App } from "../bindings/MostFileViewer";
 import { useTheme } from "./composables/useTheme";
-import {
-    detectSyntaxKey,
-    getMediaType,
-    inferExtensionFromSyntax,
-} from "./composables/useFileTypes";
-import { getMediaCapability, mediaErrorMessage } from "./composables/useMediaPlayer";
+import { getMediaType } from "./composables/useFileTypes";
+import { mediaErrorMessage } from "./composables/useMediaPlayer";
+import { useAutoSave } from "./composables/useAutoSave";
+import { useWorkspaceSession } from "./composables/useWorkspaceSession";
+import { usePreviewLoader } from "./composables/usePreviewLoader";
+import { useTabPersistence } from "./composables/useTabPersistence";
+import { useFileSystemSync } from "./composables/useFileSystemSync";
+import { useTabLifecycle } from "./composables/useTabLifecycle";
 
 const selectedFolder = ref("");
+// 当前工作区的真实类型，不再通过 treeData 的形状推断。
+const workspaceMode = ref("empty"); // empty | file | folder
 const treeData = ref([]);
 const leftPaneWidth = ref(320);
 const sidebarOpen = ref(true);
@@ -253,8 +257,6 @@ let removeFilesDroppedListener = null;
 let removeThemeChangeListener = null;
 let removeFsChangeListener = null;
 let removeFileRemovedListener = null;
-let restoringSession = false;
-let persistSessionTimer = null;
 // 源文件编辑时刷新对应预览 tab 的防抖定时器：源 tab path → timer id
 const livePreviewTimers = new Map();
 const LIVE_PREVIEW_DELAY = 150;
@@ -342,14 +344,12 @@ async function handleNewWindow() {
 }
 
 // 自动保存相关
-const autoSaveDebounceTimers = new Map();
 const encodingChangeRequests = new Map();
-let autoSaveIntervalTimer = null;
-const AUTO_SAVE_DEBOUNCE_DELAY = 2500; // 2.5秒防抖
-const AUTO_SAVE_INTERVAL_DELAY = 60000; // 60秒定时保存
 // 自动保存开关状态，初始从 localStorage 恢复，默认为开启。
 const AUTO_SAVE_STORAGE_KEY = "mfv-auto-save";
 const autoSaveEnabled = ref(readAutoSaveSetting());
+let saveTabForAutoSave = () => Promise.resolve();
+let saveTabForLifecycle = () => Promise.resolve();
 function readAutoSaveSetting() {
     try {
         const stored = localStorage.getItem(AUTO_SAVE_STORAGE_KEY);
@@ -374,6 +374,119 @@ function handleAutoSaveToggle(enabled) {
         clearAllAutoSaveDebounceTimers();
     }
 }
+
+const {
+    schedule: scheduleAutoSave,
+    clear: clearAutoSaveDebounceTimer,
+    clearAll: clearAllAutoSaveDebounceTimers,
+    start: startAutoSaveInterval,
+    stop: stopAutoSaveTimers,
+} = useAutoSave({
+    tabs: openTabs,
+    enabled: autoSaveEnabled,
+    saveTab: (path) => saveTabForAutoSave(path),
+});
+
+const {
+    restore: restoreWorkspaceSession,
+    schedulePersist: schedulePersistWorkspaceSession,
+    persistNow: persistWorkspaceSessionNow,
+    clear: clearWorkspaceSession,
+    stop: stopWorkspaceSession,
+} = useWorkspaceSession({
+    workspaceMode,
+    selectedFolder,
+    treeData,
+    openTabs,
+    activeTabPath,
+    sidebarOpen,
+    leftPaneWidth,
+    getParentPath,
+    getPathName,
+    getPathExtension,
+    registerOpenPath,
+    openFileNode,
+});
+
+const {
+    loadTabPreview,
+    revokeMediaToken,
+    revokeTabMedia,
+} = usePreviewLoader({
+    getPreviewType,
+    nextMediaSourceVersion,
+});
+
+const {
+    save: handleSaveTab,
+    saveAs: handleSaveAsTab,
+    saveDirty: saveDirtyTabs,
+} = useTabPersistence({
+    tabs: openTabs,
+    activePath: activeTabPath,
+    selectedFolder,
+    previewTabs,
+    autoSaveEnabled,
+    clearAutoSave: clearAutoSaveDebounceTimer,
+    scheduleAutoSave,
+    updateTab,
+    registerOpenPath,
+    schedulePersist: schedulePersistWorkspaceSession,
+    getPathName,
+    getPathExtension,
+    normalizeError,
+});
+saveTabForAutoSave = handleSaveTab;
+
+const {
+    handleReorderTab,
+    handleOpenInNewTab,
+    handleNewTab,
+    handleCloseTab,
+    releaseTabPayload,
+    releaseAllTabPayloads,
+} = useTabLifecycle({
+    tabs: openTabs,
+    activePath: activeTabPath,
+    selectedFolder,
+    treeData,
+    workspaceMode,
+    untitledCounter: () => ++untitledCounter,
+    saveTab: (path) => saveTabForLifecycle(path),
+    clearAutoSave: clearAutoSaveDebounceTimer,
+    encodingChangeRequests,
+    revokeTabMedia,
+    updateTab,
+    unregisterOpenPath,
+    clearLivePreviewTimer: (path) => clearLivePreviewTimer(path),
+    schedulePersist: schedulePersistWorkspaceSession,
+    clearWorkspaceSession,
+});
+saveTabForLifecycle = handleSaveTab;
+
+const {
+    handleFsChange,
+    handleFileRemoved,
+    updateTreeNode,
+} = useFileSystemSync({
+    selectedFolder,
+    treeData,
+    openTabs,
+    activeTabPath,
+    isFolderPreview: () => isActualFolderPreview.value,
+    getPathName,
+    getPathExtension,
+    getPreviewType,
+    nextMediaSourceVersion,
+    loadTabPreview,
+    buildLoadedTabPatch,
+    updateTab,
+    revokeTabMedia,
+    revokeMediaToken,
+    registerOpenPath,
+    unregisterOpenPath,
+    normalizeError,
+});
 
 // 未命名（空白可编辑）tab 的自增计数器，保证多个未命名 tab 的 path 与 name 互不重复。
 let untitledCounter = 0;
@@ -429,16 +542,8 @@ function filterTreeNodes(nodes, keyword) {
     return result;
 }
 
-// 判断是否是真正的文件夹预览（而不是单个文件预览）
-const isActualFolderPreview = computed(() => {
-    if (!selectedFolder.value) return false;
-    // 如果树数据只有一个文件节点，说明是单个文件预览
-    if (treeData.value.length === 1 && treeData.value[0].type === "file") {
-        return false;
-    }
-    // 否则是真正的文件夹预览
-    return true;
-});
+// 文件模式下 selectedFolder 保存文件所在目录，不能用它判断是否为文件夹工作区。
+const isActualFolderPreview = computed(() => workspaceMode.value === "folder");
 
 function findSiblingNodes(nodes, targetPath) {
     for (const node of nodes || []) {
@@ -544,136 +649,13 @@ onBeforeUnmount(() => {
     void Promise.all(openTabs.value.map((tab) => revokeTabMedia(tab)));
     stopResize();
     stopAutoSave();
-    if (persistSessionTimer) {
-        clearTimeout(persistSessionTimer);
-        persistSessionTimer = null;
-    }
+    stopWorkspaceSession();
     window.removeEventListener("keydown", handleGlobalShortcut);
     removeFilesDroppedListener?.();
     removeThemeChangeListener?.();
     removeFsChangeListener?.();
     removeFileRemovedListener?.();
 });
-
-async function restoreWorkspaceSession() {
-    restoringSession = true;
-    try {
-        const session = await App.ConsumeRestoreSession();
-        if (!session?.hasSession) {
-            restoringSession = false;
-            return;
-        }
-
-        if (Number.isFinite(session.leftPaneWidth) && session.leftPaneWidth > 0) {
-            leftPaneWidth.value = session.leftPaneWidth;
-        }
-
-        if (session.mode === "folder" && session.rootPath) {
-            const tree = await App.LoadFolderTree(session.rootPath);
-            selectedFolder.value = session.rootPath;
-            treeData.value = tree;
-            sidebarOpen.value = session.sidebarOpen !== false;
-            openTabs.value = [];
-            activeTabPath.value = "";
-            await registerOpenPath(session.rootPath);
-        } else if (session.openTabs?.length) {
-            const firstPath = session.openTabs[0].path;
-            selectedFolder.value = getParentPath(firstPath);
-            treeData.value = [
-                {
-                    name: getPathName(firstPath),
-                    path: firstPath,
-                    type: "file",
-                    extension: getPathExtension(firstPath),
-                },
-            ];
-            sidebarOpen.value = false;
-            openTabs.value = [];
-            activeTabPath.value = "";
-        }
-
-        for (const tab of session.openTabs || []) {
-            if (!tab?.path) {
-                continue;
-            }
-            await openFileNode({
-                name: getPathName(tab.path),
-                path: tab.path,
-                type: "file",
-                extension: getPathExtension(tab.path),
-            });
-        }
-
-        if (session.activePath && openTabs.value.some((tab) => tab.path === session.activePath)) {
-            activeTabPath.value = session.activePath;
-        }
-
-        restoringSession = false;
-        if (!selectedFolder.value && openTabs.value.length === 0) {
-            await clearWorkspaceSession();
-            return;
-        }
-        await persistWorkspaceSessionNow();
-    } catch (error) {
-        restoringSession = false;
-        await clearWorkspaceSession();
-    } finally {
-        restoringSession = false;
-    }
-}
-
-function schedulePersistWorkspaceSession() {
-    if (restoringSession) {
-        return;
-    }
-    if (persistSessionTimer) {
-        clearTimeout(persistSessionTimer);
-    }
-    persistSessionTimer = setTimeout(() => {
-        persistSessionTimer = null;
-        void persistWorkspaceSessionNow();
-    }, 250);
-}
-
-async function persistWorkspaceSessionNow() {
-    if (restoringSession) {
-        return;
-    }
-
-    const tabs = openTabs.value
-        .filter(
-            (tab) => tab?.path && tab.status !== "error" && !tab.previewOnly,
-        )
-        .map((tab) => ({ path: tab.path }));
-
-    if (!selectedFolder.value && tabs.length === 0) {
-        await clearWorkspaceSession();
-        return;
-    }
-
-    const session = {
-        mode: isActualFolderPreview.value ? "folder" : "file",
-        rootPath: selectedFolder.value || "",
-        openTabs: tabs,
-        activePath: activeTabPath.value || "",
-        sidebarOpen: sidebarOpen.value,
-        leftPaneWidth: leftPaneWidth.value,
-    };
-
-    try {
-        await App.SaveWindowSession(session);
-    } catch (error) {
-        // Session persistence is best-effort.
-    }
-}
-
-async function clearWorkspaceSession() {
-    try {
-        await App.ClearWindowSession();
-    } catch (error) {
-        // Session persistence is best-effort.
-    }
-}
 
 async function handleSelectFile() {
     globalError.value = "";
@@ -690,7 +672,7 @@ async function handleSelectFile() {
         }
 
         // 如果已有工作区，直接在预览区域添加新tab
-        if (selectedFolder.value) {
+        if (workspaceMode.value !== "empty") {
             await addFileToWorkspace(filePath);
         } else {
             // 没有工作区时，打开单个文件（不显示侧边栏）
@@ -702,13 +684,6 @@ async function handleSelectFile() {
 }
 
 async function openFileInWorkspace(filePath) {
-    if (!(await saveDirtyTabs())) {
-        return;
-    }
-
-    // 注销旧工作区的已打开路径
-    await unregisterAllOpenPaths();
-
     const fileName = getPathName(filePath);
     const fileNode = {
         name: fileName,
@@ -717,16 +692,45 @@ async function openFileInWorkspace(filePath) {
         extension: getPathExtension(fileName),
     };
 
-    selectedFolder.value = getParentPath(filePath);
-    treeData.value = [fileNode];
-    sidebarOpen.value = false; // 选择单个文件时关闭侧边栏
+    if (!(await saveDirtyTabs())) {
+        return;
+    }
+
+    await replaceWorkspace({
+        mode: "file",
+        rootPath: getParentPath(filePath),
+        tree: [fileNode],
+        sidebarOpen: false,
+        openNode: fileNode,
+    });
+}
+
+async function replaceWorkspace({
+    mode,
+    rootPath,
+    tree,
+    sidebarOpen: nextSidebarOpen,
+    openNode = null,
+}) {
+    // 注销旧工作区的已打开路径
+    await unregisterAllOpenPaths();
+
+    workspaceMode.value = mode;
+    selectedFolder.value = rootPath;
+    treeData.value = tree;
+    sidebarOpen.value = nextSidebarOpen;
     clearAllAutoSaveDebounceTimers();
     clearAllLivePreviewTimers();
     await releaseAllTabPayloads();
     await nextTick();
     openTabs.value = [];
     activeTabPath.value = "";
-    await openFileNode(fileNode);
+
+    if (openNode) {
+        await openFileNode(openNode);
+    } else {
+        await registerOpenPath(rootPath);
+    }
     schedulePersistWorkspaceSession();
 }
 
@@ -771,79 +775,10 @@ function getPathExtension(path) {
     return extensionStart > 0 ? name.slice(extensionStart) : "";
 }
 
-// 统一 tab 的文件读取与预览源创建，调用方只负责处理 tab 版本和 UI 状态。
-async function loadTabPreview(path, fallbackExtension = "", sourceVersion = 0) {
-    const content = await App.ReadFile(path);
-    const previewType = getPreviewType(content.extension || fallbackExtension);
-    const isCodePreview = previewType === "code";
-    const isMediaPreview = previewType === "audio" || previewType === "video";
-    const loadedSource = isCodePreview
-        ? null
-        : await loadBinarySource(
-              content,
-              previewType,
-              isMediaPreview
-                  ? sourceVersion || nextMediaSourceVersion()
-                  : sourceVersion,
-          );
-
-    return {
-        content,
-        previewType,
-        isCodePreview,
-        isMediaPreview,
-        source: isMediaPreview ? loadedSource?.source || null : loadedSource,
-        media: isMediaPreview ? loadedSource?.media : undefined,
-    };
-}
-
 // 另存为对话框的建议文件名：
 // - virtual：使用 tab 上显示的名字（编辑时由 deriveUntitledName 派生为内容前 10 字符或「未命名」）
 //   加上 syntax 推断的后缀；过滤掉文件名非法字符，避免对话框兜底
 // - 实文件副本："<原名> (副本).<ext>"
-function computeSuggestedFileName(tab) {
-    if (tab.virtual) {
-        const ext = inferExtensionFromSyntax(tab.syntax);
-        const base = sanitizeFileName(tab.name) || "未命名";
-        return `${base}${ext}`;
-    }
-    const ext = tab.extension || ".txt";
-    const base = sanitizeFileName(tab.name) || "副本";
-    return `${base} (副本)${ext}`;
-}
-
-// 过滤 Windows 文件名非法字符与路径分隔符，避免对话框出现非法默认名
-function sanitizeFileName(name) {
-    const cleaned = String(name || "").replace(/[\\/:*?"<>|]/g, "_").trim();
-    return cleaned;
-}
-
-// 默认目录：virtual 用当前文件夹根；实文件副本用原文件所在目录
-function computeDefaultSaveDirectory(tab) {
-    if (tab.virtual) {
-        return selectedFolder.value || "";
-    }
-    if (!tab.path) {
-        return "";
-    }
-    return tab.path.replace(/[\\/][^\\/]*$/, "");
-}
-
-function findNodeByPath(nodes, targetPath) {
-    for (const node of nodes) {
-        if (node.path === targetPath) {
-            return node;
-        }
-        if (node.children && node.children.length > 0) {
-            const found = findNodeByPath(node.children, targetPath);
-            if (found) {
-                return found;
-            }
-        }
-    }
-    return null;
-}
-
 async function handleFilesDropped(event) {
     globalError.value = "";
 
@@ -867,7 +802,7 @@ async function handleFilesDropped(event) {
         await handleOpenFolder(item.path);
     } else {
         // 如果已有工作区，直接添加新tab
-        if (selectedFolder.value) {
+        if (workspaceMode.value !== "empty") {
             await addFileToWorkspace(item.path);
         } else {
             await openFileInWorkspace(item.path);
@@ -881,23 +816,13 @@ async function handleOpenFolder(folderPath) {
             return;
         }
 
-        // 注销旧工作区的已打开路径
-        await unregisterAllOpenPaths();
-
         const tree = await App.LoadFolderTree(folderPath);
-        selectedFolder.value = folderPath;
-        treeData.value = tree;
-        sidebarOpen.value = true; // 选择文件夹时显示侧边栏
-        clearAllAutoSaveDebounceTimers();
-        clearAllLivePreviewTimers();
-        await releaseAllTabPayloads();
-        await nextTick();
-        openTabs.value = [];
-        activeTabPath.value = "";
-
-        // 注册文件夹路径
-        await registerOpenPath(folderPath);
-        schedulePersistWorkspaceSession();
+        await replaceWorkspace({
+            mode: "folder",
+            rootPath: folderPath,
+            tree,
+            sidebarOpen: true,
+        });
     } catch (error) {
         // silently ignore
     }
@@ -926,7 +851,7 @@ async function handleLoadFolderChildren(node) {
 // 刷新文件列表：按当前根目录重新扫描整棵树。已打开的 tab 不受影响；
 // 同一根目录下后端不会重置 watcher / 白名单，已展开节点靠 path key 保留展开状态。
 async function handleRefreshTree() {
-    if (treeRefreshing.value || !selectedFolder.value) {
+    if (treeRefreshing.value || !isActualFolderPreview.value) {
         return;
     }
 
@@ -980,29 +905,20 @@ async function openFileNode(node) {
     try {
         await registerOpenPath(node.path);
         const loaded = await loadTabPreview(node.path, node.extension, sourceVersion);
-        const { content, previewType, isCodePreview, isMediaPreview } = loaded;
+        const { isMediaPreview } = loaded;
         const currentTab = openTabs.value.find((item) => item.path === node.path);
-        if (!currentTab || (isMediaPreview && currentTab.media?.sourceVersion !== loaded.media?.sourceVersion)) {
+        if (
+            !currentTab ||
+            (isMediaPreview &&
+                currentTab.media?.sourceVersion !== loaded.media?.sourceVersion)
+        ) {
             await revokeMediaToken(loaded.media?.token);
             return;
         }
-        updateTab(node.path, {
-            extension: content.extension || node.extension,
-            previewType,
-            size: Number(content.size || 0),
-            source: loaded.source,
-            media: isMediaPreview ? loaded.media : undefined,
-            content: isCodePreview ? content.content || "" : "",
-            encoding: content.encoding || "utf-8",
-            dirty: false,
-            saving: false,
-            saveError: "",
-            encodingLoading: false,
-            contentVersion: isCodePreview ? (tab.contentVersion ?? 0) + 1 : 0,
-            changeVersion: 0,
-            savedVersion: 0,
-            status: "ready",
-        });
+        updateTab(
+            node.path,
+            buildLoadedTabPatch(loaded, node.extension, currentTab),
+        );
 
         // 成功打开文件后登记该 tab 路径
         schedulePersistWorkspaceSession();
@@ -1013,6 +929,30 @@ async function openFileNode(node) {
         });
         schedulePersistWorkspaceSession();
     }
+}
+
+function buildLoadedTabPatch(loaded, fallbackExtension, currentTab) {
+    const { content, previewType, isCodePreview, isMediaPreview } = loaded;
+    return {
+        extension: content.extension || fallbackExtension,
+        previewType,
+        size: Number(content.size || 0),
+        source: loaded.source,
+        media: isMediaPreview ? loaded.media : undefined,
+        content: isCodePreview ? content.content || "" : "",
+        encoding: content.encoding || "utf-8",
+        dirty: false,
+        saving: false,
+        saveError: "",
+        encodingLoading: false,
+        contentVersion: isCodePreview
+            ? (currentTab?.contentVersion ?? 0) + 1
+            : 0,
+        changeVersion: 0,
+        savedVersion: 0,
+        status: "ready",
+        error: "",
+    };
 }
 
 async function handleSelectFolder() {
@@ -1033,23 +973,13 @@ async function handleSelectFolder() {
             return;
         }
 
-        // 注销旧工作区的已打开路径
-        await unregisterAllOpenPaths();
-
         const tree = await App.LoadFolderTree(folder);
-        selectedFolder.value = folder;
-        treeData.value = tree;
-        sidebarOpen.value = true; // 选择文件夹时显示侧边栏
-        clearAllAutoSaveDebounceTimers();
-        clearAllLivePreviewTimers();
-        await releaseAllTabPayloads();
-        await nextTick();
-        openTabs.value = [];
-        activeTabPath.value = "";
-
-        // 注册文件夹路径
-        await registerOpenPath(folder);
-        schedulePersistWorkspaceSession();
+        await replaceWorkspace({
+            mode: "folder",
+            rootPath: folder,
+            tree,
+            sidebarOpen: true,
+        });
     } catch (error) {
         // silently ignore
     }
@@ -1089,231 +1019,6 @@ async function handleShowInFileManager(node) {
     } catch (error) {
         // silently ignore
     }
-}
-
-// 处理后端按窗口推送的「父目录级批量变化」事件。
-// parent === selectedFolder 走 root 合并（保留 folder 的 loaded/children/hasChild）；
-// parent 是子目录时分两路：loaded=true 替换 children；loaded=false 仅刷新 hasChild。
-// 处理完后顺手把「仅扩展名变化」的 tab 自动重读，其余 rename 标 error。
-async function handleFsChange(event) {
-    const payload = event?.data;
-    if (!payload || !payload.parent) {
-        return;
-    }
-    const parent = payload.parent;
-    if (!selectedFolder.value) {
-        return;
-    }
-    const hasExternalRename = (payload.changes || []).some(
-        (change) => change?.op === "rename",
-    );
-
-    if (parent === selectedFolder.value) {
-        // root 路径：重新扫根，按 path 合并替换顶层，保留 folder 节点的 loaded/children/hasChild
-        let fresh;
-        try {
-            fresh = await App.LoadFolderChildren(parent);
-        } catch (error) {
-            return;
-        }
-        const oldByPath = new Map(treeData.value.map((n) => [n.path, n]));
-        const merged = fresh.map((n) => {
-            const old = oldByPath.get(n.path);
-            if (old && old.type === "folder") {
-                return {
-                    ...n,
-                    loaded: old.loaded,
-                    children: old.children,
-                    hasChild: old.hasChild || n.hasChild,
-                };
-            }
-            return n;
-        });
-        await nextTick();
-        treeData.value = merged;
-        if (hasExternalRename) {
-            await reconcileRenamedTabs();
-        }
-        return;
-    }
-
-    // 子目录路径
-    const parentNode = findNodeByPath(treeData.value, parent);
-    if (!parentNode || parentNode.type !== "folder") {
-        return;
-    }
-
-    let fresh;
-    try {
-        fresh = await App.LoadFolderChildren(parent);
-    } catch (error) {
-        return;
-    }
-
-    if (parentNode.loaded) {
-        // 已加载：直接替换 children；下次展开拿到的就是新鲜数据
-        await nextTick();
-        treeData.value = updateTreeNode(treeData.value, parent, {
-            children: fresh,
-            loaded: true,
-            hasChild: fresh.length > 0,
-        });
-    } else {
-        // 未加载：只刷新 hasChild，children 仍保持空（避免折叠节点拿空数组被前端误判）
-        await nextTick();
-        treeData.value = updateTreeNode(treeData.value, parent, {
-            hasChild: fresh.length > 0,
-        });
-    }
-    if (hasExternalRename) {
-        await reconcileRenamedTabs();
-    }
-}
-
-// 去掉扩展名后的文件名（不含路径）用于「仅扩展名变化」识别
-function stripExtName(path) {
-    const name = String(path || "").split(/[\\/]/).pop() || "";
-    const dot = name.lastIndexOf(".");
-    return dot > 0 ? name.slice(0, dot) : name;
-}
-
-// root 合并后扫一遍 openTabs，识别改名旧 tab：
-// 1) path 严格相同 → 不动
-// 2) 旧 path 不在新 treeData 里，但存在同 stripExtName 的 newPath → 命中「仅扩展名变化」，改 path 并重读
-// 3) 否则视为被移动/重命名，标 error
-async function reconcileRenamedTabs() {
-    const newPaths = new Set();
-    const pathByStem = new Map();
-    const collectPaths = (nodes) => {
-        for (const node of nodes || []) {
-            if (!node?.path) continue;
-            newPaths.add(node.path);
-            pathByStem.set(stripExtName(node.path), node.path);
-            collectPaths(node.children);
-        }
-    };
-    collectPaths(treeData.value);
-    for (const tab of openTabs.value) {
-        if (!tab.path || tab.virtual || tab.previewOnly) continue;
-        if (newPaths.has(tab.path)) continue;
-
-        // watcher 事件与目录扫描存在时序差异。若文件已经回到原路径，
-        // 说明只是一次短暂的替换窗口，不应把 tab 标记成外部改名。
-        try {
-            await App.GetFileInfo(tab.path);
-            continue;
-        } catch (error) {
-            // 文件确实不存在时再继续判断是否改了扩展名或路径。
-        }
-
-        const stem = stripExtName(tab.path);
-        const candidate = pathByStem.get(stem);
-        if (candidate && candidate !== tab.path) {
-            // 仅扩展名变化：把 tab 改到新 path，刷新 extension/previewType，重新读取内容
-            await migrateTabToNewPath(tab, candidate);
-        } else {
-            // 其它改名：标 error，不自动关
-            updateTab(tab.path, {
-                status: "error",
-                error: "文件已被移动或重命名",
-            });
-        }
-    }
-}
-
-// 把 tab 从旧 path 切换到 newPath：unregister/refresh 字段/重新 ReadFile/register。
-// 不处理 dirty：dirty 的 tab 由用户在编辑中决定要不要切换；此处保守起见保留 dirty 状态。
-async function migrateTabToNewPath(tab, newPath) {
-    const oldPath = tab.path;
-    const newExt = getPathExtension(newPath);
-    const newName = getPathName(newPath);
-    const sourceVersion = nextMediaSourceVersion();
-    await revokeTabMedia(tab);
-    try {
-        await unregisterOpenPath(oldPath);
-    } catch (error) {
-        // ignore
-    }
-
-    openTabs.value = openTabs.value.map((t) =>
-        t.path === oldPath
-            ? {
-                  ...t,
-                  path: newPath,
-                  name: newName,
-                   extension: newExt,
-                   previewType: getPreviewType(newExt),
-                   media: {
-                       token: "",
-                       sourceVersion,
-                       capability: "unknown",
-                       loadState: "idle",
-                       errorCode: "",
-                       errorMessage: "",
-                   },
-              }
-            : t,
-    );
-    if (activeTabPath.value === oldPath) {
-        activeTabPath.value = newPath;
-    }
-
-    try {
-        await registerOpenPath(newPath);
-    } catch (error) {
-        // ignore
-    }
-
-    // 重新读内容
-    try {
-        const loaded = await loadTabPreview(newPath, newExt, sourceVersion);
-        const { content, previewType, isCodePreview, isMediaPreview } = loaded;
-        const currentTab = openTabs.value.find((item) => item.path === newPath);
-        if (!currentTab || (isMediaPreview && currentTab.media?.sourceVersion !== loaded.media?.sourceVersion)) {
-            await revokeMediaToken(loaded.media?.token);
-            return;
-        }
-        updateTab(newPath, {
-            extension: content.extension || newExt,
-            previewType,
-            size: Number(content.size || 0),
-            source: loaded.source,
-            media: isMediaPreview ? loaded.media : undefined,
-            content: isCodePreview ? content.content || "" : "",
-            encoding: content.encoding || "utf-8",
-            dirty: false,
-            saving: false,
-            saveError: "",
-            encodingLoading: false,
-            contentVersion: (tab.contentVersion ?? 0) + 1,
-            changeVersion: 0,
-            savedVersion: 0,
-            status: "ready",
-            error: "",
-        });
-        schedulePersistWorkspaceSession();
-    } catch (error) {
-        updateTab(newPath, {
-            status: "error",
-            error: normalizeError(error, "读取文件失败"),
-        });
-    }
-}
-
-// 处理后端推送的「文件被外部删除」事件：把对应 tab 标 error，不自动关。
-function handleFileRemoved(event) {
-    const path = event?.data?.path;
-    if (!path) {
-        return;
-    }
-    openTabs.value.forEach((tab) => {
-        if (tab.path === path) {
-            updateTab(tab.path, {
-                status: "error",
-                error: "文件已被删除",
-            });
-        }
-    });
 }
 
 function handleChangeTab(path) {
@@ -1362,21 +1067,6 @@ async function navigateAudioQueue(path, direction, manual = false) {
     audioQueuePlayed.add(path);
     audioQueuePlayed.add(nextNode.path);
     await handleOpenFile(nextNode);
-}
-
-async function revokeMediaToken(token) {
-    if (!token) {
-        return;
-    }
-    try {
-        await App.RevokeMediaToken(token);
-    } catch (error) {
-        // 回收是尽力而为；窗口关闭与服务端 TTL 仍会兜底。
-    }
-}
-
-async function revokeTabMedia(tab) {
-    await revokeMediaToken(tab?.media?.token);
 }
 
 function handleMediaError(path, payload) {
@@ -1462,167 +1152,6 @@ async function reloadMediaTab(path) {
             });
         }
     }
-}
-
-// 拖拽调整 tab 顺序：将 fromPath 移动到 toPath 的左/右侧。
-// 不改变 activeTabPath，保持当前激活预览不变；重新排序后触发会话持久化，
-// 重启后普通 tab 顺序会被恢复（error / previewOnly tab 依旧被现有持久化逻辑过滤）。
-function handleReorderTab({ fromPath, toPath, after }) {
-    const tabs = openTabs.value;
-    const fromIndex = tabs.findIndex((t) => t.path === fromPath);
-    let toIndex = tabs.findIndex((t) => t.path === toPath);
-    if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) {
-        return;
-    }
-
-    const next = [...tabs];
-    const [moved] = next.splice(fromIndex, 1);
-
-    // 移除源项后目标索引可能变化，重新定位一次。
-    toIndex = next.findIndex((t) => t.path === toPath);
-    const insertIndex = after ? toIndex + 1 : toIndex;
-    next.splice(insertIndex, 0, moved);
-
-    openTabs.value = next;
-    schedulePersistWorkspaceSession();
-}
-
-// 在新标签页中打开当前文件的只读预览（Markdown / 单体网页）。
-// 合成 tab 使用 preview:// 前缀路径，仅存在于内存中，不注册后端路径也不参与会话持久化。
-function handleOpenInNewTab(sourcePath, payload) {
-    if (!payload) {
-        return;
-    }
-
-    const previewPath = `preview://${sourcePath}`;
-    const previewName = payload.name
-        ? `${payload.name} (预览)`
-        : "预览";
-
-    const existingTab = openTabs.value.find((tab) => tab.path === previewPath);
-    if (existingTab) {
-        // 已存在同源预览 tab：刷新内容并聚焦。
-        updateTab(previewPath, {
-            content: payload.content ?? "",
-            extension: payload.extension || existingTab.extension,
-            syntax: payload.syntax || existingTab.syntax,
-        });
-        activeTabPath.value = previewPath;
-        return;
-    }
-
-    const tab = {
-        path: previewPath,
-        name: previewName,
-        extension: payload.extension || "",
-        syntax: payload.syntax || "",
-        status: "ready",
-        previewType: "preview",
-        previewOnly: true,
-        source: null,
-        content: payload.content ?? "",
-        encoding: "utf-8",
-        dirty: false,
-        saving: false,
-        saveError: "",
-        encodingLoading: false,
-        contentVersion: 0,
-        changeVersion: 0,
-        savedVersion: 0,
-    };
-
-    openTabs.value = [...openTabs.value, tab];
-    activeTabPath.value = previewPath;
-}
-
-// 新建一个空白可编辑文字 tab。复用 CodePreview（previewType: 'code'），
-// 但用 untitled:// 前缀的虚拟 path，并打上 virtual 标记，关闭时不走保存、不参与会话持久化。
-function handleNewTab() {
-    untitledCounter += 1;
-    const tab = {
-        path: `untitled://${untitledCounter}`,
-        name: untitledCounter > 1 ? `未命名 ${untitledCounter}` : "未命名",
-        extension: ".txt",
-        status: "ready",
-        previewType: "code",
-        virtual: true,
-        previewOnly: true,
-        source: null,
-        content: "",
-        encoding: "utf-8",
-        dirty: false,
-        saving: false,
-        saveError: "",
-        encodingLoading: false,
-        contentVersion: 0,
-        changeVersion: 0,
-        savedVersion: 0,
-    };
-
-    openTabs.value = [...openTabs.value, tab];
-    activeTabPath.value = tab.path;
-    schedulePersistWorkspaceSession();
-}
-
-async function handleCloseTab(path) {
-    const currentIndex = openTabs.value.findIndex((tab) => tab.path === path);
-    if (currentIndex === -1) {
-        return;
-    }
-
-    let currentTab = openTabs.value.find((tab) => tab.path === path);
-    const isPreviewOnly = currentTab?.previewOnly === true;
-    const isVirtual = currentTab?.virtual === true;
-    if (currentTab?.dirty && !isVirtual) {
-        await handleSaveTab(path);
-        currentTab = openTabs.value.find((tab) => tab.path === path);
-    }
-
-    // virtual tab（空白可编辑）不存在保存目标，dirty 状态仅用于视觉提示，
-    // 关闭时一律放行；普通 tab 在保存失败或正在保存时仍需阻止关闭，避免丢数据。
-    // 即使 SaveFileAs 失败，编辑器内内容仍可保留，用户可重新点保存或复制到外部。
-    if (!isVirtual && (currentTab?.dirty || currentTab?.saving)) {
-        return;
-    }
-
-    clearAutoSaveDebounceTimer(path);
-    encodingChangeRequests.delete(path);
-    await revokeTabMedia(currentTab);
-    releaseTabPayload(path);
-    // 关闭源 tab 时清理其实时预览定时器；关闭预览 tab 时清理对应源的定时器。
-    if (isPreviewOnly) {
-        clearLivePreviewTimer(path.replace(/^preview:\/\//, ""));
-    } else {
-        clearLivePreviewTimer(path);
-    }
-    await nextTick();
-
-    const nextTabs = openTabs.value.filter((tab) => tab.path !== path);
-    openTabs.value = nextTabs;
-
-    // 注销已关闭 tab 的文件路径（合成预览 / 未命名 tab 未注册后端路径，跳过）
-    if (!isPreviewOnly) {
-        await unregisterOpenPath(path);
-    }
-
-    // 单文件模式下关闭最后一个 tab 后返回首页
-    if (nextTabs.length === 0 && !isActualFolderPreview.value) {
-        selectedFolder.value = "";
-        treeData.value = [];
-        activeTabPath.value = "";
-        void clearWorkspaceSession();
-        return;
-    }
-
-    if (activeTabPath.value !== path) {
-        schedulePersistWorkspaceSession();
-        return;
-    }
-
-    const nextActive =
-        nextTabs[currentIndex] || nextTabs[currentIndex - 1] || null;
-    activeTabPath.value = nextActive ? nextActive.path : "";
-    schedulePersistWorkspaceSession();
 }
 
 function handlePreviewError(path, error) {
@@ -1773,182 +1302,6 @@ async function handleEncodingChange(path, encoding) {
     }
 }
 
-// 另存为：virtual 首次落地 + 实文件另存为副本统一走这里。
-// 用户取消时（后端返回空串）静默返回；写入失败保留 dirty 状态以便重试。
-async function handleSaveAsTab(path, { alwaysAsCopy = false } = {}) {
-    const tab = openTabs.value.find((item) => item.path === path);
-    if (
-        !tab ||
-        tab.previewType !== "code" ||
-        tab.status !== "ready" ||
-        tab.saving ||
-        tab.encodingLoading ||
-        // 合成预览 tab（preview://）不允许另存为；virtual tab 允许（首次落地需要走这里）
-        (!tab.virtual && tab.previewOnly)
-    ) {
-        return;
-    }
-
-    clearAutoSaveDebounceTimer(path);
-
-    const suggestedName = computeSuggestedFileName(tab);
-    const defaultDirectory = computeDefaultSaveDirectory(tab);
-    const content =
-        previewTabs.value?.getCodeContent(path) ?? tab.content ?? "";
-    const encoding = tab.encoding || "utf-8";
-
-    updateTab(path, { saving: true, saveError: "" });
-    try {
-        const newPath = await App.SaveFileAs(
-            suggestedName,
-            content,
-            encoding,
-            defaultDirectory,
-        );
-        if (!newPath) {
-            // 用户取消：清空错误与保存状态，tab 回到「未保存」态（dirty 保持不变）
-            // - 清空 saveError：去掉 tab 标题旁的红色感叹号
-            // - 强制 status: "ready"、error: ""：兜底清掉之前可能留下的 error 态
-            //   （例如文件已被删除 / 移动 / 重命名等场景，避免预览区还显示红色错误文字）
-            const current = openTabs.value.find((t) => t.path === path);
-            updateTab(path, {
-                saving: false,
-                saveError: "",
-                status: "ready",
-                error: "",
-                // 取消时如果发现 tab 已不存在（极端 race），就放过；否则维持 dirty
-                dirty: current?.dirty === true,
-            });
-            return;
-        }
-
-        // 实文件另存为副本：原 path 不变，仅在状态栏提示已复制到 newPath
-        if (!tab.virtual && alwaysAsCopy) {
-            updateTab(path, {
-                saving: false,
-                saveError: `已另存为副本：${newPath}`,
-            });
-            return;
-        }
-
-        // virtual → 升级为实文件 tab
-        const saveVersion = tab.changeVersion ?? 0;
-        const newExt =
-            getPathExtension(newPath) || inferExtensionFromSyntax(tab.syntax);
-        const newName = getPathName(newPath);
-        const newSyntax = detectSyntaxKey(newExt, newName);
-
-        // 升级前先取出当前编辑器最新内容（path 还没换，PreviewTabs ref 还能命中）
-        const latestContent =
-            previewTabs.value?.getCodeContent(path) ?? content;
-
-        const nextTabs = openTabs.value.map((item) => {
-            if (item.path !== path) return item;
-            return {
-                ...item,
-                path: newPath,
-                name: newName,
-                extension: newExt,
-                syntax: newSyntax,
-                virtual: false,
-                previewOnly: false,
-                dirty: false,
-                saving: false,
-                saveError: "",
-                savedVersion: saveVersion,
-                contentVersion: (item.contentVersion ?? 0) + 1,
-                content: latestContent,
-            };
-        });
-        openTabs.value = nextTabs;
-        activeTabPath.value = newPath;
-
-        // 登记后端：让 validateFilePath 后续放行 + 多窗口去重生效
-        await registerOpenPath(newPath);
-        schedulePersistWorkspaceSession();
-    } catch (error) {
-        updateTab(path, {
-            saving: false,
-            dirty: true,
-            saveError: normalizeError(error, "保存文件失败"),
-        });
-    }
-}
-
-async function handleSaveTab(path = activeTabPath.value) {
-    const tab = openTabs.value.find((item) => item.path === path);
-    if (
-        !tab ||
-        tab.previewType !== "code" ||
-        tab.status !== "ready" ||
-        tab.saving ||
-        tab.encodingLoading
-    ) {
-        return;
-    }
-    // virtual 走另存为；实文件继续走 App.SaveFile（原逻辑不变）
-    if (tab.virtual) {
-        return handleSaveAsTab(path);
-    }
-
-    clearAutoSaveDebounceTimer(path);
-
-    const saveVersion = tab.changeVersion ?? 0;
-    const content = previewTabs.value?.getCodeContent(path) ?? tab.content;
-
-    updateTab(path, { saving: true, saveError: "" });
-    try {
-        await App.SaveFile(tab.path, content, tab.encoding || "utf-8");
-
-        const currentTab = openTabs.value.find((item) => item.path === path);
-        if (!currentTab) {
-            return;
-        }
-
-        const hasNewerChanges = (currentTab.changeVersion ?? 0) > saveVersion;
-        updateTab(path, {
-            ...(hasNewerChanges ? {} : { content }),
-            dirty: hasNewerChanges,
-            saving: false,
-            savedVersion: hasNewerChanges
-                ? (currentTab.savedVersion ?? 0)
-                : saveVersion,
-            error: "",
-            saveError: "",
-        });
-
-        if (hasNewerChanges && autoSaveEnabled.value) {
-            scheduleAutoSave(path);
-        }
-    } catch (error) {
-        updateTab(path, {
-            saving: false,
-            dirty: true,
-            saveError: normalizeError(error, "保存文件失败"),
-        });
-    }
-}
-
-async function saveDirtyTabs() {
-    const dirtyPaths = openTabs.value
-        .filter(
-            (tab) =>
-                tab.dirty &&
-                tab.status === "ready" &&
-                tab.previewType === "code",
-        )
-        .map((tab) => tab.path);
-
-    for (const path of dirtyPaths) {
-        await handleSaveTab(path);
-    }
-
-    return dirtyPaths.every((path) => {
-        const tab = openTabs.value.find((item) => item.path === path);
-        return !tab || (!tab.dirty && !tab.saving);
-    });
-}
-
 function handleGlobalShortcut(event) {
     const ctrl = event.ctrlKey || event.metaKey;
     if (!ctrl) {
@@ -1981,52 +1334,10 @@ function toggleSidebar() {
     schedulePersistWorkspaceSession();
 }
 
-function releaseTabPayload(path) {
-    encodingChangeRequests.delete(path);
-    updateTab(path, {
-        source: null,
-        content: "",
-        error: "",
-        encodingLoading: false,
-    });
-}
-
-async function releaseAllTabPayloads() {
-    encodingChangeRequests.clear();
-    if (!openTabs.value.length) {
-        return;
-    }
-
-    await Promise.all(openTabs.value.map((tab) => revokeTabMedia(tab)));
-
-    openTabs.value = openTabs.value.map((tab) => ({
-        ...tab,
-        source: null,
-        content: "",
-        error: "",
-        encodingLoading: false,
-    }));
-}
-
 function updateTab(path, patch) {
     openTabs.value = openTabs.value.map((tab) =>
         tab.path === path ? { ...tab, ...patch } : tab,
     );
-}
-
-function updateTreeNode(nodes, path, patch) {
-    return nodes.map((node) => {
-        if (node.path === path) {
-            return { ...node, ...patch };
-        }
-        if (!node.children?.length) {
-            return node;
-        }
-        return {
-            ...node,
-            children: updateTreeNode(node.children, path, patch),
-        };
-    });
 }
 
 // 在 getPreviewType 函数中添加音频和视频支持
@@ -2072,92 +1383,6 @@ function isImageExtension(extension) {
         ".ico",
         ".avif",
     ].includes(extension);
-}
-
-async function loadBinarySource(content, previewType, sourceVersion = 1) {
-    if (!content) {
-        return null;
-    }
-    // 音视频走 Range 流式：返回后端签发的 /media/<token> URL，
-    // <video>/<audio> 自带 Range 请求，磁盘按需读取，不占整文件内存。
-    if (previewType === "audio" || previewType === "video") {
-        const capability = getMediaCapability(previewType, content.extension);
-        if (capability === "unsupported") {
-            return {
-                source: null,
-                media: {
-                    token: "",
-                    sourceVersion,
-                    capability,
-                    loadState: "failed",
-                    errorCode: "unsupported",
-                    errorMessage: mediaErrorMessage("unsupported"),
-                },
-            };
-        }
-        const tokenInfo = await App.RegisterMediaToken(content.path);
-        return {
-            source: tokenInfo.url,
-            media: {
-                token: tokenInfo.token,
-                sourceVersion,
-                capability,
-                loadState: "idle",
-                errorCode: "",
-                errorMessage: "",
-                size: Number(tokenInfo.size || content.size || 0),
-                modifiedAt: tokenInfo.modifiedAt || null,
-            },
-        };
-    }
-    if (["word", "excel", "ppt", "image", "pdf"].includes(previewType)) {
-        return readFileInChunks(content.path, Number(content.size || 0));
-    }
-    return base64ToArrayBuffer(content.base64);
-}
-
-async function readFileInChunks(path, totalSize) {
-    if (!path || !Number.isFinite(totalSize) || totalSize <= 0) {
-        return new ArrayBuffer(0);
-    }
-
-    const chunkSize = 2 * 1024 * 1024;
-    const bytes = new Uint8Array(totalSize);
-    let offset = 0;
-
-    while (offset < totalSize) {
-        const nextSize = Math.min(chunkSize, totalSize - offset);
-        const chunk = await App.ReadFileChunk(path, offset, nextSize);
-        const actualSize = Number(chunk?.size || 0);
-        if (actualSize <= 0) {
-            break;
-        }
-
-        writeBase64Chunk(bytes, offset, chunk.base64, actualSize);
-        offset += actualSize;
-    }
-
-    return bytes.buffer;
-}
-
-function writeBase64Chunk(target, offset, base64, expectedSize) {
-    const binary = window.atob(base64 || "");
-    const size = Math.min(binary.length, expectedSize, target.length - offset);
-    for (let index = 0; index < size; index += 1) {
-        target[offset + index] = binary.charCodeAt(index);
-    }
-}
-
-function base64ToArrayBuffer(base64) {
-    if (!base64) {
-        return null;
-    }
-    const binary = window.atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-        bytes[index] = binary.charCodeAt(index);
-    }
-    return bytes.buffer;
 }
 
 function normalizeError(error, fallback) {
@@ -2206,57 +1431,6 @@ function stopResize() {
     removeResizeListeners?.();
 }
 
-function startAutoSaveInterval() {
-    // 清理旧的定时器
-    if (autoSaveIntervalTimer) {
-        clearInterval(autoSaveIntervalTimer);
-    }
-
-    // 启动定时保存：每60秒检查所有脏tabs并保存
-    autoSaveIntervalTimer = setInterval(() => {
-        if (!autoSaveEnabled.value) {
-            return;
-        }
-        openTabs.value.forEach((tab) => {
-            // 只保存真正修改过的tabs（优化1：智能节流）
-            if (
-                tab.dirty &&
-                tab.status === "ready" &&
-                tab.previewType === "code" &&
-                !tab.saving
-            ) {
-                void handleSaveTab(tab.path);
-            }
-        });
-    }, AUTO_SAVE_INTERVAL_DELAY);
-}
-
-function scheduleAutoSave(path) {
-    clearAutoSaveDebounceTimer(path);
-    autoSaveDebounceTimers.set(
-        path,
-        setTimeout(() => {
-            autoSaveDebounceTimers.delete(path);
-            void handleSaveTab(path);
-        }, AUTO_SAVE_DEBOUNCE_DELAY),
-    );
-}
-
-function clearAutoSaveDebounceTimer(path) {
-    const timer = autoSaveDebounceTimers.get(path);
-    if (!timer) {
-        return;
-    }
-
-    clearTimeout(timer);
-    autoSaveDebounceTimers.delete(path);
-}
-
-function clearAllAutoSaveDebounceTimers() {
-    autoSaveDebounceTimers.forEach((timer) => clearTimeout(timer));
-    autoSaveDebounceTimers.clear();
-}
-
 function clearLivePreviewTimer(sourcePath) {
     const timer = livePreviewTimers.get(sourcePath);
     if (!timer) {
@@ -2272,15 +1446,8 @@ function clearAllLivePreviewTimers() {
 }
 
 function stopAutoSave() {
-    // 清理防抖定时器
-    clearAllAutoSaveDebounceTimers();
+    stopAutoSaveTimers();
     clearAllLivePreviewTimers();
-
-    // 清理定时保存定时器
-    if (autoSaveIntervalTimer) {
-        clearInterval(autoSaveIntervalTimer);
-        autoSaveIntervalTimer = null;
-    }
 }
 </script>
 
