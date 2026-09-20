@@ -1,3 +1,5 @@
+
+
 # MostFileViewer · 万能预览器
 
 [![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)](https://go.dev/)
@@ -18,6 +20,7 @@
 | **📄 文档预览** | 支持 Word (.docx)、Excel (.xlsx/.xls/.csv)、PowerPoint (.pptx) 渲染 |
 | **📖 PDF 预览** | 内嵌 PDF 渲染，支持缩放 |
 | **🖼️ 图片预览** | 支持常见图片格式 (JPG, PNG, BMP, GIF, WebP, SVG, TIFF, ICO) |
+| **🎬 音视频预览** | 基于 WebView 原生播放，失败时可改用系统默认播放器打开 |
 | **📝 代码预览** | 基于 CodeMirror 6 的语法高亮，支持 15+ 语言，**支持编辑并保存** |
 | **📘 Markdown 预览** | 源码/渲染双栏实时预览，滚动同步，支持 GFM 表格、任务列表、代码块语法高亮及 **Mermaid 图表** |
 | **📚 电子书预览** | 支持 EPUB / MOBI / AZW / AZW3 / FB2 / CBZ，含目录导航、字号调节、进度跳转与明暗主题跟随 |
