@@ -75,6 +75,10 @@ const props = defineProps({
     type: String,
     default: "",
   },
+  path: {
+    type: String,
+    default: "",
+  },
   extension: {
     type: String,
     default: "",
@@ -119,6 +123,7 @@ const player = useMediaPlayer({
   getSource: () => resolvedSrc.value,
   onError: (payload) => emit("media-error", payload),
   onEnded: () => emit("request-next"),
+  playbackKey: () => props.path,
 });
 
 // 模板 ref 需要绑定到 setup 顶层名字；指向 composable 内部的同一个 ref

@@ -8,7 +8,7 @@ export function useTabPersistence({
     tabs,
     activePath,
     selectedFolder,
-    previewTabs,
+    previewArea,
     autoSaveEnabled,
     clearAutoSave,
     scheduleAutoSave,
@@ -18,9 +18,10 @@ export function useTabPersistence({
     getPathName,
     getPathExtension,
     normalizeError,
+    replaceTabPath = () => {},
 }) {
     function getEditorContent(path, fallback = "") {
-        return previewTabs.value?.getCodeContent(path) ?? fallback;
+        return previewArea.value?.getCodeContent(path) ?? fallback;
     }
 
     function sanitizeFileName(name) {
@@ -118,6 +119,8 @@ export function useTabPersistence({
                 };
             });
             tabs.value = nextTabs;
+            // 分屏布局里同步替换该 tab 的 path，避免它被当成「新 tab」重新归属到焦点 pane。
+            replaceTabPath(path, newPath);
             activePath.value = newPath;
             await registerOpenPath(newPath);
             schedulePersist();

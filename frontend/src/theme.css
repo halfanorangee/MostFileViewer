@@ -33,7 +33,7 @@
     --bg-image-viewer: #f3f4f6;     /* 图片预览区背景 */
     --bg-dropzone: #f8fafc;         /* 拖拽区背景 */
     --bg-toolbar: #f9fafc;          /* 工具栏背景（Excel） */
-    --bg-statusbar: #f1f5f9;        /* 状态栏背景（Code 底栏） */
+    --bg-statusbar: var(--bg-surface); /* 状态栏背景（Code 底栏，与文本区一致） */
     --bg-panel: #f9fbff;            /* 面板背景（CodeMirror 搜索面板） */
     --bg-hover: #f5f8fc;            /* 悬浮态背景：树节点 */
     --bg-active: #eaf2ff;           /* 选中态背景：树节点 active */
@@ -190,8 +190,8 @@
     /* ================================================================
      * 滚动条
      * ================================================================ */
-    --scrollbar-size: 12px;
-    --scrollbar-track: rgba(226, 232, 240, 0.48);
+    --scrollbar-size: 6px;
+    --scrollbar-track: var(--bg-surface); /* 滚动条轨道与文件列表/预览区容器背景一致 */
     --scrollbar-thumb: rgba(100, 116, 139, 0.36);
     --scrollbar-thumb-hover: rgba(71, 85, 105, 0.56);
     --scrollbar-thumb-active: rgba(var(--accent-primary-rgb), 0.72);
@@ -201,7 +201,7 @@
      * 布局尺寸
      * ================================================================ */
     --tab-height: 34px;             /* 预览 Tab 签高度（需同步覆盖 layui-tab-title 的 height 与 li 的 line-height） */
-    --tab-padding-x: 10px;          /* 预览 Tab 签左右内边距（覆盖 layui 默认 padding: 0 15px） */
+    --tab-padding-x: 6px;           /* 预览 Tab 签左右内边距（覆盖 layui 默认 padding: 0 15px） */
 
     /* ================================================================
      * layui-vue 全局变量对齐
@@ -244,13 +244,13 @@
 
     /* ---- 背景颜色 ---- */
     --bg-app: #0d1117;
-    --bg-surface: #161b22;
+    --bg-surface: #262c36;      /* 比标题栏（#161b22）浅多档，与亮色下白色背景的层次关系保持一致 */
     --bg-titlebar: #161b22;
     --bg-preview: #21262d;
     --bg-image-viewer: #21262d;
     --bg-dropzone: #21262d;
     --bg-toolbar: #161b22;
-    --bg-statusbar: #161b22;
+    --bg-statusbar: var(--bg-surface);  /* Code 底栏与文本区背景一致 */
     --bg-panel: #1c2128;
     --bg-hover: rgba(255, 255, 255, 0.06);
     --bg-active: rgba(56, 139, 253, 0.15);
@@ -326,7 +326,7 @@
     --md-inline-code-bg: rgba(110, 118, 129, 0.4);
 
     /* ---- 滚动条 ---- */
-    --scrollbar-track: #0d1117;
+    --scrollbar-track: var(--bg-surface); /* 滚动条轨道与文件列表/预览区容器背景一致 */
     --scrollbar-thumb: rgba(125, 133, 144, 0.38);
     --scrollbar-thumb-hover: rgba(139, 148, 158, 0.62);
     --scrollbar-thumb-active: rgba(var(--accent-primary-rgb), 0.82);

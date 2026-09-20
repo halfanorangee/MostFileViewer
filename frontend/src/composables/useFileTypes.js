@@ -85,6 +85,24 @@ export function isVideoExtension(extension) {
     return getMediaType(extension) === "video";
 }
 
+// 电子书扩展名集合，EBookPreview 负责渲染。
+// .epub / .fb2 / .cbz / .fbz 由 foliate-js 按扩展名或魔数识别，
+// .mobi / .prc / .azw / .azw3 走魔数（BOOKMOBI）识别。
+export const EBOOK_EXTENSIONS = Object.freeze([
+    ".epub",
+    ".mobi",
+    ".prc",
+    ".azw",
+    ".azw3",
+    ".fb2",
+    ".fbz",
+    ".cbz",
+]);
+
+export function isEbookExtension(extension) {
+    return EBOOK_EXTENSIONS.includes((extension || "").toLowerCase());
+}
+
 // 根据文件扩展名与文件名推断默认语法键。
 export function detectSyntaxKey(extension, name) {
     const normalizedName = (name || "").toLowerCase();

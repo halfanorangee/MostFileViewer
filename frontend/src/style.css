@@ -2,14 +2,27 @@
     box-sizing: border-box;
 }
 
-* {
-    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-    scrollbar-width: thin;
+/* Firefox 降级：Firefox 不支持 ::-webkit-scrollbar 伪元素，改用标准属性。
+   必须用 @supports 限定：Chromium 121+（含 Windows 上的 WebView2）中，
+   一旦元素设置了 scrollbar-width / scrollbar-color，所有 ::-webkit-scrollbar-*
+   自定义样式会整体失效并回退到带箭头的系统默认滚动条。 */
+@supports not selector(::-webkit-scrollbar) {
+    * {
+        scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+        scrollbar-width: thin;
+    }
 }
 
 *::-webkit-scrollbar {
     width: var(--scrollbar-size);
     height: var(--scrollbar-size);
+}
+
+/* 隐藏滚动条两端的上下/左右箭头按钮 */
+*::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
 }
 
 *::-webkit-scrollbar-track {
@@ -21,8 +34,6 @@
     min-height: 40px;
     background: var(--scrollbar-thumb);
     background-clip: padding-box;
-    border: 3px solid transparent;
-    border-radius: 999px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
@@ -37,6 +48,11 @@
 
 *::-webkit-scrollbar-corner {
     background: var(--scrollbar-corner);
+}
+
+/* 覆盖 layui-vue 组件内置的滚动条滑块圆角，与全局样式保持一致 */
+.layui-tree-select-content::-webkit-scrollbar-thumb {
+    border-radius: 2px;
 }
 
 html,
@@ -68,7 +84,6 @@ input {
     height: 40px;
     background: var(--bg-titlebar);
     color: var(--text-secondary);
-    border-bottom: 1px solid var(--border-strong);
     user-select: none;
     flex-shrink: 0;
 }
@@ -133,9 +148,20 @@ input {
 
 .hero {
     min-height: 100%;
-    display: grid;
-    place-items: center;
-    padding: 32px;
+    display: flex;
+    flex-direction: column;
+    /* gap 同时是 tab 签条与面板之间的最小间距（面板 margin:auto 垂直居中） */
+    gap: 24px;
+}
+
+/* 首页 tab 签条：保留 tab 签的 ul（.layui-tab-title），样式与工作区一致。
+   高度即签条高度（含常驻横向滚动条槽），卡片圆角与预览面板一致。 */
+.hero__tabbar {
+    flex: none;
+    height: var(--tab-height);
+    margin: 4px 4px 0;
+    border-radius: 10px;
+    background: var(--bg-surface);
 }
 
 .hero__panel,
@@ -147,6 +173,7 @@ input {
 
 .hero__panel {
     width: min(580px, 100%);
+    margin: auto;
     padding: 40px;
     display: flex;
     flex-direction: column;
@@ -245,6 +272,9 @@ input {
     min-height: 0;
     flex: 1;
     overflow: hidden;
+    /* 左右各 4px 留空由外部容器统一提供,内部面板不再各自留白 */
+    padding: 0 4px;
+    background: var(--bg-titlebar);
 }
 
 .workspace__sidebar,
@@ -255,13 +285,35 @@ input {
 }
 
 .workspace__resizer {
+    position: relative;
+    z-index: 2;
     cursor: col-resize;
-    background: linear-gradient(
-        to right,
-        transparent 0,
-        var(--border-cell) 50%,
-        transparent 100%
-    );
+    background: var(--bg-titlebar);
+    width: 4px;
+}
+
+/*
+ * The native scrollbar of the file tree sits immediately beside the resizer.
+ * The ::before hit area must NOT extend to the left, otherwise it covers the
+ * scrollbar and makes it impossible to click and drag. Only extend into the
+ * preview side so the grab area stays comfortable without stealing scrollbar
+ * interactions.
+ */
+.workspace__resizer::before {
+    content: "";
+    position: absolute;
+    inset: 0 -8px 0 0;
+    cursor: col-resize;
+}
+
+.workspace__sidebar:not(:hover) .file-tree {
+    scrollbar-color: transparent transparent;
+}
+
+.workspace__sidebar:not(:hover) .file-tree::-webkit-scrollbar,
+.workspace__sidebar:not(:hover) .file-tree::-webkit-scrollbar-track,
+.workspace__sidebar:not(:hover) .file-tree::-webkit-scrollbar-thumb {
+    background: transparent;
 }
 
 .pane-card {
@@ -280,7 +332,8 @@ input {
 
 .file-tree {
     padding: 0;
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
     flex: 1 1 auto;
     min-width: 0;
     min-height: 0;
@@ -330,6 +383,10 @@ input {
 
 .preview-tabs {
     display: flex;
+    /* 定位上下文：内部拖拽投放层（.preview-tabs__drop-layer）据此覆盖整个 pane。
+       缺少 relative 时投放层会相对更外层（乃至视口）定位，
+       拖拽期间可能覆盖整窗、吃掉其它区域的指针事件。 */
+    position: relative;
     flex-direction: column;
     height: 100%;
     min-height: 0;
@@ -347,57 +404,53 @@ input {
 }
 
 .preview-tabs__container--empty {
-    align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
 }
 
-.preview-tabs__empty-hint {
-    color: var(--text-muted);
-    text-align: center;
-    font-size: 14px;
-    line-height: 1.8;
-    user-select: none;
-    pointer-events: none;
+/* 无 tab 时 lay-tab 仍会渲染空的内容容器，隐藏之避免占位；
+   tab 签条（.layui-tab-title 的 ul）保持显示。 */
+.preview-tabs__container--empty .layui-tab-content {
+    display: none;
 }
 
-.preview-tabs__empty-hint-sub {
-    font-size: 12px;
-    color: var(--text-muted);
-    opacity: 0.85;
-}
-
-.preview-tabs__empty-hint-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    border: 1px solid currentColor;
-    border-radius: 3px;
-    font-size: 12px;
-    line-height: 1;
-    margin: 0 2px;
-    vertical-align: -2px;
-}
-
-/* 新增空白 tab 按钮：固定在 tab 签区域最右侧，与 tab 签等高。 */
-.preview-tabs__new-btn {
+/* 「新增空白 tab」专属区域：固定占位于 tab 签条最右侧。
+   - 不透明底色与预览面板卡片背景（--bg-surface）一致，视觉无缝；
+   - 即使 tab 签滚动到最右，也只会被该区域盖住而不会透过按钮显示，避免重叠；
+   - 底部 4px 让位给 tab 栏滚动条，内容区再补 padding-top 4px，
+     使按钮与 tab 签（margin-top 4px、等高 26px）完全对齐；
+   - pointer-events: none 不拦截指针事件：滚动条拖动、「双击 tab 签条空白处新建」
+     等交互直接落到下层的 .layui-tab-title 上，行为保持不变。 */
+.preview-tabs__new-btn-area {
     position: absolute;
     top: 0;
     right: 0;
-    height: var(--tab-height);
     width: var(--tab-height);
+    height: calc(var(--tab-height) - 4px);
+    padding-top: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-surface);
+    z-index: 5;
+    pointer-events: none;
+}
+
+/* 新增空白 tab 按钮：位于专属区域内，外观与 tab 签保持一致
+   （同高、同圆角 6px、默认透明背景、hover 同为 --bg-panel）。 */
+.preview-tabs__new-btn {
+    width: calc(var(--tab-height) - 8px);
+    height: calc(var(--tab-height) - 8px);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     padding: 0;
     border: 0;
-    border-left: 1px solid var(--border-subtle);
-    background: var(--bg-surface);
+    border-radius: 6px;
+    background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    z-index: 5;
     transition: background-color 0.15s ease, color 0.15s ease;
+    pointer-events: auto;
 }
 
 .preview-tabs__new-btn:hover {
@@ -496,37 +549,90 @@ input {
     margin: 0;
 }
 
-/* 覆盖 layui 默认 tab 高度（40px），通过 --tab-height 统一控制 */
+/* 覆盖 layui 默认 tab 高度（40px），通过 --tab-height 统一控制。
+   tab 溢出时改用原生横向滚动条（layui 自带的左右箭头按钮已整体隐藏）：
+   - overflow-x 用 scroll 而非 auto：滚动条空间常驻，tab 增多时 tab 区域高度不变；
+   - li 去掉下方 4px 外边距，该空间恰好由 4px 滚动条占位，上下留白保持一致；
+   - transform: none 抵消 layui 通过内联样式 translate 平移标题的滚动方式，
+     避免与原生滚动条冲突（ul 上的 layui wheel 监听已在组件捕获阶段拦截）。 */
 .preview-tabs__lay .layui-tab-title {
+    display: flex;
+    align-items: center;
     height: var(--tab-height);
-    /* 留出最右侧「新增空白 tab」按钮的占位，避免 tabs 溢出时滑到按钮下被遮挡。 */
-    padding-right: var(--tab-height);
+    overflow-x: scroll;
+    overflow-y: hidden;
+    transform: none !important;
 }
 
+/* 最右侧「新增空白 tab」专属区域的占位：用 flex 伪元素实现。
+   占位属于滚动内容本身，比容器自身的 padding-right 更可靠
+   （后者在部分浏览器的滚动溢出计算中会被忽略），确保 tab 签滚动到最右时
+   也不会滑入按钮区域。 */
+.preview-tabs__lay .layui-tab-title::after {
+    content: "";
+    flex: 0 0 auto;
+    width: var(--tab-height);
+    align-self: stretch;
+}
+
+/* tab 栏专用 4px 滚动条（覆盖全局 6px 默认值）：
+   槽位空间常驻保证 tab 区域高度稳定，但 thumb 默认透明隐藏，
+   仅在鼠标移入 tab 栏（ul）时显示。 */
+.preview-tabs__lay .layui-tab-title::-webkit-scrollbar {
+    height: 4px;
+}
+
+.preview-tabs__lay .layui-tab-title::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.preview-tabs__lay .layui-tab-title::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 2px;
+}
+
+/* 显隐由 JS 维护：.preview-tabs--tabbar-visible 挂在 section 根节点上，
+   详见 PreviewTabs.vue 中 tabBarScrollVisible 的注释 */
+.preview-tabs--tabbar-visible .layui-tab-title::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+}
+
+.preview-tabs--tabbar-visible .layui-tab-title::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+}
+
+.preview-tabs--tabbar-visible .layui-tab-title::-webkit-scrollbar-thumb:active {
+    background: var(--scrollbar-thumb-active);
+}
+
+/* Firefox 降级：与上方 webkit 行为对齐（thumb 默认透明，指针进入 tab 栏时显示） */
+@supports not selector(::-webkit-scrollbar) {
+    .preview-tabs__lay .layui-tab-title {
+        scrollbar-color: transparent transparent;
+    }
+
+    .preview-tabs--tabbar-visible .layui-tab-title {
+        scrollbar-color: var(--scrollbar-thumb) transparent;
+    }
+}
+
+/* 隐藏 layui 自带的 tab 溢出左右箭头（◀ ▶），滚动交互统一交给原生滚动条。
+   箭头隐藏后其 offsetWidth 为 0，layui 不会再为它预留 padding。 */
 .preview-tabs__lay .layui-tab-bar {
-    height: var(--tab-height);
-    background: var(--bg-surface);
-    border-color: var(--border-subtle);
-    border-bottom-color: var(--bg-surface);
-    color: var(--text-muted);
-}
-
-.preview-tabs__lay .layui-tab-bar.prev {
-    border-right-color: var(--border-subtle) !important;
-}
-
-.preview-tabs__lay .layui-tab-bar:not(.prev) {
-    border-left-color: var(--border-subtle);
-}
-
-.preview-tabs__lay .layui-tab-bar:hover {
-    background: var(--bg-panel);
-    color: var(--accent-hover);
+    display: none;
 }
 
 .preview-tabs__lay .layui-tab-title li {
-    line-height: var(--tab-height);
+    display: inline-flex;
+    align-items: center;
+    /* 禁止 flex 压缩：tab 过多时保持自身宽度向外溢出，由原生横向滚动条承载 */
+    flex: 0 0 auto;
+    height: calc(var(--tab-height) - 8px);
+    line-height: normal;
+    /* 下方不留白：4px 空间由常驻的横向滚动条占据，避免溢出前后高度变化 */
+    margin: 4px 0 0 4px;
     padding: 0 var(--tab-padding-x);
+    border-radius: 6px;
     /* 作为拖拽落点指示线（伪元素 absolute）的定位基准，使指示线贴到 tab 签左右最外侧 */
     position: relative;
 }
@@ -536,15 +642,58 @@ input {
     color: var(--accent-hover);
 }
 
+.preview-tabs__lay .layui-tab-title li:hover:not(.layui-this) {
+    background: var(--bg-panel);
+}
+
+.preview-tabs__lay .layui-tab-title li.layui-this::after {
+    border: 0;
+    border-radius: 4px;
+}
+
 .preview-tabs__title {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
+    gap: 2px;
     max-width: 150px;
+    min-height: 20px;
+    line-height: 1.5;
+    /* 拖拽由 pointer 事件接管，禁止选中标题文本（不影响 click 切换）。 */
+    user-select: none;
 }
 
 .preview-tabs__title--dragging {
     opacity: 0.5;
+}
+
+/* 拖拽跟随浮层：自定义 drag image（原生 drag image 在 WebView 宿主下拿不到）。
+   fixed + transform 跟随指针，不参与布局，也不拦截指针事件。 */
+.preview-tabs__drag-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 4000;
+    display: inline-flex;
+    align-items: center;
+    max-width: 180px;
+    padding: 3px 10px;
+    border: 1px solid var(--accent-primary);
+    border-radius: 6px;
+    background: var(--bg-tab-active);
+    color: var(--accent-hover);
+    font-size: 12px;
+    line-height: 1.5;
+    opacity: 0.75;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+    pointer-events: none;
+    will-change: transform;
+}
+
+.preview-tabs__drag-ghost-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* 指示线定位到 li（tab 签）的最外侧：伪元素向上冒出到最近的 position:relative 祖先——
@@ -575,6 +724,7 @@ input {
     white-space: nowrap;
     min-width: 0;
     flex: 1;
+    line-height: 1.5;
 }
 
 .preview-tabs__status {
@@ -622,17 +772,22 @@ input {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
+    /* 圆角方形按钮：高度略小于 tab 签高度（li 高 26px） */
+    width: 18px;
+    height: 18px;
     padding: 0;
     border: 0;
-    border-radius: 50%;
+    border-radius: 4px;
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    font-size: 16px;
-    line-height: 1;
     flex-shrink: 0;
+}
+
+/* 关闭图标为内联 SVG（替换元素），flex 按其几何边界精确居中，
+   不受文本字体基线度量影响 */
+.preview-tabs__close-icon {
+    display: block;
 }
 
 .preview-tabs__close:hover {
@@ -804,4 +959,151 @@ input {
     font-family: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", monospace;
     font-size: 12px;
     color: var(--text-secondary);
+}
+
+/* ============================================================================
+ * 预览区分屏（PreviewSplitNode）与 tab 拖拽投放层（PreviewTabs）
+ * ============================================================================ */
+
+/* 分割节点：两个子节点 + 可拖拽分隔条。 */
+.preview-split {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+}
+
+.preview-split--row {
+    flex-direction: row;
+}
+
+.preview-split--column {
+    flex-direction: column;
+}
+
+.preview-split__child {
+    display: flex;
+    flex: 0 0 auto;
+    min-width: 0;
+    min-height: 0;
+}
+
+.preview-split__child--fill {
+    flex: 1 1 0;
+}
+
+/* 分隔条：视觉上是一条 1px 线（--bg-titlebar）。抓取热区由 ::before 向
+   右 / 下方扩展 4px（加自身共 5px），只覆盖一侧 pane 的边缘，不越到另一侧。
+   z-index: 3 必须高于 layui 给 tab 签条的 z-index: 2 —— 否则上下布局里
+   向下扩展的 4px 热区会被下层 pane 的 tab 签条盖住，触发区失效。 */
+.preview-split__divider {
+    position: relative;
+    z-index: 3;
+    flex: 0 0 auto;
+    background: var(--bg-titlebar);
+}
+
+.preview-split--row > .preview-split__divider {
+    width: 1px;
+    cursor: col-resize;
+}
+
+.preview-split--column > .preview-split__divider {
+    height: 1px;
+    cursor: row-resize;
+}
+
+/* 抓取热区：向右 / 下方扩展 4px，加上自身 1px，共 5px 可抓取。 */
+.preview-split--row > .preview-split__divider::before {
+    content: "";
+    position: absolute;
+    inset: 0 -4px 0 0;
+    cursor: col-resize;
+}
+
+.preview-split--column > .preview-split__divider::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 -4px 0;
+    cursor: row-resize;
+}
+
+/* 分隔条拖动期间禁用文本选择，避免指针移动时选中内容。 */
+.preview-split--resizing,
+.preview-split--resizing * {
+    user-select: none;
+}
+
+/* 单个 pane：一张卡片。border 保持透明占位，避免焦点切换时布局跳动；
+   焦点 pane 不再做边框高亮。 */
+.preview-split__pane {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: var(--bg-surface);
+}
+
+/* 非焦点 pane：tab 名变浅（文字弱化色 + 半透明叠加，明暗主题联动）。
+   只调 tab 名文本，不动关闭按钮 / 状态图标。 */
+.preview-split__pane--unfocused .preview-tabs__title-text {
+    color: var(--text-muted);
+    opacity: 0.65;
+}
+
+/* pane 内的 tab 条 + 内容区撑满整个 pane。 */
+.preview-split__pane > .preview-tabs {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+/* 内部 tab 拖拽期间，被划过的 pane 给出落点提示。 */
+.preview-tabs--drop-target {
+    box-shadow: inset 0 0 0 1px var(--accent-primary);
+}
+
+/* tab 拖拽投放层：拖拽期间覆盖整个 pane（含 tab 条），
+   统一接管落点提示（四分区高亮）。 */
+.preview-tabs__drop-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+}
+
+/* 指针拖拽（pointer 实现）期间：禁止文本选择并显示抓手光标。 */
+body.mfv-tab-dragging,
+body.mfv-tab-dragging * {
+    user-select: none !important;
+    cursor: grabbing !important;
+}
+
+/* 内容区四分区高亮：提示即将在该方向分屏。 */
+.preview-tabs__drop-preview {
+    position: absolute;
+    border: 1px solid var(--accent-primary);
+    border-radius: 6px;
+    background: var(--accent-overlay);
+    pointer-events: none;
+}
+
+.preview-tabs__drop-preview--top {
+    inset: 0 0 50% 0;
+}
+
+.preview-tabs__drop-preview--bottom {
+    inset: 50% 0 0 0;
+}
+
+.preview-tabs__drop-preview--left {
+    inset: 0 50% 0 0;
+}
+
+.preview-tabs__drop-preview--right {
+    inset: 0 0 0 50%;
 }

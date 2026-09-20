@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -128,14 +129,34 @@ type SessionTab struct {
 	Path string `json:"path"`
 }
 
+// SessionSplitNode 描述分屏布局树的一个节点：
+// Type 为 "pane" 时是叶子（Tabs 为该 pane 内的 tab 顺序，Active 为其激活项），
+// Type 为 "split" 时是分支（Direction 为 row/column，Ratio 为第一个子节点的占比）。
+type SessionSplitNode struct {
+	Type      string             `json:"type"`
+	ID        string             `json:"id,omitempty"`
+	Tabs      []string           `json:"tabs,omitempty"`
+	Active    string             `json:"active,omitempty"`
+	Direction string             `json:"direction,omitempty"`
+	Ratio     float64            `json:"ratio,omitempty"`
+	Children  []SessionSplitNode `json:"children,omitempty"`
+}
+
+// SessionPreviewLayout 是预览区分屏布局的持久化结构。
+type SessionPreviewLayout struct {
+	Root          *SessionSplitNode `json:"root,omitempty"`
+	FocusedPaneID string            `json:"focusedPaneId,omitempty"`
+}
+
 type WindowSession struct {
-	HasSession    bool         `json:"hasSession,omitempty"`
-	Mode          string       `json:"mode"`
-	RootPath      string       `json:"rootPath"`
-	OpenTabs      []SessionTab `json:"openTabs"`
-	ActivePath    string       `json:"activePath"`
-	SidebarOpen   bool         `json:"sidebarOpen"`
-	LeftPaneWidth int          `json:"leftPaneWidth"`
+	HasSession    bool                  `json:"hasSession,omitempty"`
+	Mode          string                `json:"mode"`
+	RootPath      string                `json:"rootPath"`
+	OpenTabs      []SessionTab          `json:"openTabs"`
+	ActivePath    string                `json:"activePath"`
+	SidebarOpen   bool                  `json:"sidebarOpen"`
+	LeftPaneWidth int                   `json:"leftPaneWidth"`
+	Layout        *SessionPreviewLayout `json:"layout,omitempty"`
 }
 
 type AppSession struct {
@@ -1969,6 +1990,17 @@ func sanitizeWindowSession(session WindowSession) (WindowSession, bool) {
 		changed = true
 	}
 
+	// 分屏布局以过滤后的 OpenTabs 为准：剔除失效 tab、回收空 pane、修正焦点。
+	validPaths := make(map[string]struct{}, len(normalized.OpenTabs))
+	for _, tab := range normalized.OpenTabs {
+		validPaths[tab.Path] = struct{}{}
+	}
+	cleanLayout, layoutChanged := sanitizeSessionLayout(normalized.Layout, validPaths)
+	if layoutChanged {
+		changed = true
+	}
+	normalized.Layout = cleanLayout
+
 	if normalized.Mode == "file" && len(normalized.OpenTabs) == 0 {
 		return WindowSession{}, true
 	}
@@ -1976,6 +2008,218 @@ func sanitizeWindowSession(session WindowSession) (WindowSession, bool) {
 		return WindowSession{}, true
 	}
 	return normalized, changed
+}
+
+const (
+	sessionLayoutMaxPanes = 4
+	sessionLayoutMaxDepth = 8
+	sessionLayoutMinRatio = 0.15
+	sessionLayoutMaxRatio = 0.85
+)
+
+// normalizeSessionLayoutPaths 对分屏布局中的路径做绝对化处理，与 OpenTabs 口径一致；
+// 结构明显损坏（缺少 root / 子节点不足 / 层级过深）时返回 nil，前端会退化为单 pane。
+func normalizeSessionLayoutPaths(layout *SessionPreviewLayout) *SessionPreviewLayout {
+	if layout == nil {
+		return nil
+	}
+	root := normalizeSessionSplitPaths(layout.Root, 0)
+	if root == nil {
+		return nil
+	}
+	return &SessionPreviewLayout{
+		Root:          root,
+		FocusedPaneID: strings.TrimSpace(layout.FocusedPaneID),
+	}
+}
+
+func normalizeSessionSplitPaths(node *SessionSplitNode, depth int) *SessionSplitNode {
+	if node == nil || depth > sessionLayoutMaxDepth {
+		return nil
+	}
+	switch node.Type {
+	case "split":
+		if len(node.Children) < 2 {
+			return nil
+		}
+		first := normalizeSessionSplitPaths(&node.Children[0], depth+1)
+		second := normalizeSessionSplitPaths(&node.Children[1], depth+1)
+		if first == nil {
+			return second
+		}
+		if second == nil {
+			return first
+		}
+		return &SessionSplitNode{
+			Type:      "split",
+			ID:        strings.TrimSpace(node.ID),
+			Direction: node.Direction,
+			Ratio:     node.Ratio,
+			Children:  []SessionSplitNode{*first, *second},
+		}
+	case "pane":
+		tabs := make([]string, 0, len(node.Tabs))
+		for _, tab := range node.Tabs {
+			path := strings.TrimSpace(tab)
+			if path == "" {
+				continue
+			}
+			if abs, err := filepath.Abs(path); err == nil {
+				path = abs
+			}
+			tabs = append(tabs, path)
+		}
+		active := strings.TrimSpace(node.Active)
+		if active != "" {
+			if abs, err := filepath.Abs(active); err == nil {
+				active = abs
+			}
+		}
+		return &SessionSplitNode{
+			Type:   "pane",
+			ID:     strings.TrimSpace(node.ID),
+			Tabs:   tabs,
+			Active: active,
+		}
+	default:
+		return nil
+	}
+}
+
+// sanitizeSessionLayout 以 OpenTabs 为事实来源清理分屏布局：剔除已失效 / 重复的 tab、
+// 回收空 pane、修正分割比例与焦点 pane。第二个返回值表示是否发生了修改。
+func sanitizeSessionLayout(layout *SessionPreviewLayout, validPaths map[string]struct{}) (*SessionPreviewLayout, bool) {
+	if layout == nil || layout.Root == nil {
+		return nil, layout != nil
+	}
+	changed := false
+	paneCount := 0
+
+	var walk func(node *SessionSplitNode, depth int) *SessionSplitNode
+	walk = func(node *SessionSplitNode, depth int) *SessionSplitNode {
+		if node == nil || depth > sessionLayoutMaxDepth {
+			changed = true
+			return nil
+		}
+		if node.Type == "split" {
+			if len(node.Children) < 2 {
+				changed = true
+				return nil
+			}
+			first := walk(&node.Children[0], depth+1)
+			second := walk(&node.Children[1], depth+1)
+			if first == nil {
+				changed = true
+				return second
+			}
+			if second == nil {
+				changed = true
+				return first
+			}
+			firstEmpty := first.Type == "pane" && len(first.Tabs) == 0
+			secondEmpty := second.Type == "pane" && len(second.Tabs) == 0
+			if firstEmpty && secondEmpty {
+				changed = true
+				return first
+			}
+			if firstEmpty {
+				changed = true
+				return second
+			}
+			if secondEmpty {
+				changed = true
+				return first
+			}
+			direction := node.Direction
+			if direction != "column" {
+				direction = "row"
+			}
+			if direction != node.Direction {
+				changed = true
+			}
+			ratio := node.Ratio
+			if ratio < sessionLayoutMinRatio || ratio > sessionLayoutMaxRatio {
+				ratio = 0.5
+				changed = true
+			}
+			return &SessionSplitNode{
+				Type:      "split",
+				ID:        node.ID,
+				Direction: direction,
+				Ratio:     ratio,
+				Children:  []SessionSplitNode{*first, *second},
+			}
+		}
+		if node.Type != "pane" {
+			changed = true
+			return nil
+		}
+
+		paneCount++
+		if paneCount > sessionLayoutMaxPanes {
+			changed = true
+			return nil
+		}
+
+		tabs := make([]string, 0, len(node.Tabs))
+		seen := make(map[string]struct{}, len(node.Tabs))
+		for _, path := range node.Tabs {
+			if _, ok := validPaths[path]; !ok {
+				changed = true
+				continue
+			}
+			if _, dup := seen[path]; dup {
+				changed = true
+				continue
+			}
+			seen[path] = struct{}{}
+			tabs = append(tabs, path)
+		}
+		active := node.Active
+		if active != "" {
+			if _, ok := seen[active]; !ok {
+				active = ""
+				changed = true
+			}
+		}
+		if active == "" && len(tabs) > 0 {
+			active = tabs[len(tabs)-1]
+		}
+		return &SessionSplitNode{Type: "pane", ID: node.ID, Tabs: tabs, Active: active}
+	}
+
+	root := walk(layout.Root, 0)
+	if root == nil {
+		return nil, true
+	}
+
+	paneIDs := make(map[string]struct{})
+	firstPaneID := ""
+	var collect func(node *SessionSplitNode)
+	collect = func(node *SessionSplitNode) {
+		if node == nil {
+			return
+		}
+		if node.Type == "pane" {
+			if firstPaneID == "" {
+				firstPaneID = node.ID
+			}
+			paneIDs[node.ID] = struct{}{}
+			return
+		}
+		for i := range node.Children {
+			collect(&node.Children[i])
+		}
+	}
+	collect(root)
+
+	focused := layout.FocusedPaneID
+	if _, ok := paneIDs[focused]; !ok {
+		focused = firstPaneID
+		changed = true
+	}
+
+	return &SessionPreviewLayout{Root: root, FocusedPaneID: focused}, changed
 }
 
 func normalizeWindowSession(session WindowSession) WindowSession {
@@ -2012,6 +2256,7 @@ func normalizeWindowSession(session WindowSession) WindowSession {
 		}
 	}
 	normalized.OpenTabs = tabs
+	normalized.Layout = normalizeSessionLayoutPaths(normalized.Layout)
 	return normalized
 }
 
@@ -2033,7 +2278,7 @@ func windowSessionsEqual(left, right WindowSession) bool {
 			return false
 		}
 	}
-	return true
+	return reflect.DeepEqual(left.Layout, right.Layout)
 }
 
 func (a *App) snapshotAppSessionLocked() AppSession {

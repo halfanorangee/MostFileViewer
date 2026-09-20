@@ -16,6 +16,7 @@ export function useTabLifecycle({
     clearLivePreviewTimer,
     schedulePersist,
     clearWorkspaceSession,
+    resolveFallbackActive,
 }) {
     function handleReorder({ fromPath, toPath, after }) {
         const fromIndex = tabs.value.findIndex((tab) => tab.path === fromPath);
@@ -150,9 +151,12 @@ export function useTabLifecycle({
             return;
         }
 
-        const nextActive =
-            nextTabs[currentIndex] || nextTabs[currentIndex - 1] || null;
-        activePath.value = nextActive ? nextActive.path : "";
+        // 优先在同 pane 内选择下一个 / 上一个 tab（分屏下避免焦点跳到其它区块），
+        // 未提供回调时沿用全局相邻项。
+        const fallbackPath = resolveFallbackActive
+            ? resolveFallbackActive({ closedPath: path, nextTabs, currentIndex })
+            : nextTabs[currentIndex]?.path || nextTabs[currentIndex - 1]?.path || "";
+        activePath.value = fallbackPath;
         schedulePersist();
     }
 

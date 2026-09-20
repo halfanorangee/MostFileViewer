@@ -52,6 +52,12 @@
                         >
                             选择文件夹
                         </button>
+                        <button
+                            class="menu-item"
+                            @click.stop="handleNewTextFile"
+                        >
+                            新建文本文件
+                        </button>
                         <div class="menu-divider"></div>
                         <button
                             class="menu-item"
@@ -248,6 +254,7 @@ defineProps({
 const emit = defineEmits([
     "select-file",
     "select-folder",
+    "new-text-file",
     "toggle-sidebar",
     "new-window",
     "save",
@@ -380,6 +387,11 @@ function handleSelectFile() {
 function handleSelectFolder() {
     closeMenu();
     emit("select-folder");
+}
+
+function handleNewTextFile() {
+    closeMenu();
+    emit("new-text-file");
 }
 
 function handleNewWindow() {

@@ -20,6 +20,7 @@
 | **🖼️ 图片预览** | 支持常见图片格式 (JPG, PNG, BMP, GIF, WebP, SVG, TIFF, ICO) |
 | **📝 代码预览** | 基于 CodeMirror 6 的语法高亮，支持 15+ 语言，**支持编辑并保存** |
 | **📘 Markdown 预览** | 源码/渲染双栏实时预览，滚动同步，支持 GFM 表格、任务列表、代码块语法高亮及 **Mermaid 图表** |
+| **📚 电子书预览** | 支持 EPUB / MOBI / AZW / AZW3 / FB2 / CBZ，含目录导航、字号调节、进度跳转与明暗主题跟随 |
 | **🌐 HTML 预览** | 独立的单网页文件渲染，如同在浏览器中打开 |
 | **🔤 编码检测** | 自动检测 UTF-8 / UTF-16 / GBK / Big5 / ISO-8859-1，可手动切换，编码感知保存 |
 | **📂 文件夹浏览** | 延迟加载的目录树 + 虚拟滚动，支持 VSCode 风格文件图标 |
@@ -41,6 +42,7 @@
 | 文档 | `.pdf`（PDF） |
 | 代码 | `.js` / `.ts` / `.go` / `.py` / `.java` / `.c` / `.cpp` / `.rs` / `.vue` / `.css` / `.html` / `.json` / `.xml` / `.yaml` 等 |
 | Markdown | `.md` / `.markdown`（源码/渲染双栏预览，支持 GFM 与 Mermaid） |
+| 电子书 | `.epub` / `.mobi` / `.prc` / `.azw` / `.azw3` / `.fb2` / `.fbz` / `.cbz`（目录、字号、进度条；DRM 加密书籍暂不支持） |
 | 图片 | `.jpg` / `.png` / `.bmp` / `.gif` / `.webp` / `.svg` / `.tiff` / `.ico` |
 | 网页 | `.html` / `.htm`（独立渲染） |
 
@@ -167,6 +169,7 @@ task package
 | **@silurus/ooxml** | Word 文档渲染（Rust + WASM + Canvas） |
 | **exceljs** + **papaparse** | Excel / CSV 渲染 |
 | **pptx-preview** | PowerPoint 渲染 |
+| **foliate-js** | 电子书解析与渲染（EPUB / MOBI / AZW3 / FB2 / CBZ，MIT） |
 | **@tanstack/vue-virtual** | 虚拟滚动（大目录树） |
 | **vscode-icons-js** | VSCode 风格文件图标 |
 

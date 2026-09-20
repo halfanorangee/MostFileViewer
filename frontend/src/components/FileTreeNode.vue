@@ -125,7 +125,6 @@ function handleContextMenu(event) {
 
 <style scoped>
 .tree-node__row {
-    min-width: max-content;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -154,7 +153,7 @@ function handleContextMenu(event) {
 }
 
 .tree-node__name {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

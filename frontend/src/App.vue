@@ -8,11 +8,23 @@
         @select-file="handleSelectFile"
         @toggle-sidebar="toggleSidebar"
         @new-window="handleNewWindow"
+        @new-text-file="createBlankTab"
         @save="handleSaveTab"
         @save-as="handleSaveAsActiveTab"
     />
     <main class="page-shell">
         <section v-if="workspaceMode === 'empty'" class="hero">
+            <!-- 首页保留 tab 签条（ul）：与工作区一致的样式，
+                 可通过右上角 + 按钮 / 双击签条空白处新建空白 tab -->
+            <div class="hero__tabbar">
+                <PreviewTabs
+                    :tabs="openTabs"
+                    :active-tab-path="activeTabPath"
+                    @new-tab="createBlankTab"
+                    @change-tab="handleChangeTab"
+                    @close-tab="handleCloseTab"
+                />
+            </div>
             <div class="hero__panel">
                 <div
                     class="hero__dropzone"
@@ -51,163 +63,58 @@
 
         <section v-else class="workspace">
             <div class="workspace__body" :style="workspaceStyle">
-                <aside v-if="sidebarOpen" class="workspace__sidebar">
-                    <div class="pane-container">
-                        <div
-                            class="pane-card__header"
-                            :class="{ 'pane-card__header--search': treeSearchActive }"
-                        >
-                            <template v-if="treeSearchActive">
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke-width="1.5"
-                                    stroke="currentColor"
-                                    class="pane-card__search-icon pane-card__search-icon--input"
-                                >
-                                    <path
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
-                                    />
-                                </svg>
-                                <input
-                                    ref="treeSearchInput"
-                                    v-model="treeSearchQuery"
-                                    type="text"
-                                    class="pane-card__search-input"
-                                    placeholder="过滤文件…"
-                                    @keydown.esc="closeTreeSearch"
-                                />
-                                <button
-                                    type="button"
-                                    class="pane-card__search-btn pane-card__search-btn--close"
-                                    title="关闭搜索"
-                                    @click="closeTreeSearch"
-                                >
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke-width="1.5"
-                                        stroke="currentColor"
-                                        class="pane-card__search-icon"
-                                    >
-                                        <path
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                            d="M6 18 18 6M6 6l12 12"
-                                        />
-                                    </svg>
-                                </button>
-                            </template>
-                            <template v-else>
-                                <span class="pane-card__title">{{ folderName || "文件树" }}</span>
-                                <div class="pane-card__header-actions">
-                                    <button
-                                        type="button"
-                                        class="pane-card__search-btn"
-                                        :class="{
-                                            'pane-card__search-btn--busy':
-                                                treeRefreshing,
-                                        }"
-                                        title="刷新"
-                                        aria-label="刷新文件列表"
-                                        :disabled="treeRefreshing"
-                                        @click="handleRefreshTree"
-                                    >
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke-width="1.5"
-                                            stroke="currentColor"
-                                            class="pane-card__search-icon"
-                                            :class="{
-                                                'pane-card__search-icon--spinning':
-                                                    treeRefreshing,
-                                            }"
-                                        >
-                                            <path
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
-                                            />
-                                        </svg>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="pane-card__search-btn"
-                                        title="搜索"
-                                        @click="handleTreeSearch"
-                                    >
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke-width="1.5"
-                                            stroke="currentColor"
-                                            class="pane-card__search-icon"
-                                        >
-                                            <path
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
-                                            />
-                                        </svg>
-                                    </button>
-                                </div>
-                            </template>
-                        </div>
-                        <FileTree
-                            :nodes="displayTreeData"
-                            :active-path="activeTabPath"
-                            :search-active="isTreeFiltering"
-                            @open-file="handleOpenFile"
-                            @load-folder="handleLoadFolderChildren"
-                            @show-in-file-manager="handleShowInFileManager"
-                        />
-                    </div>
-                </aside>
+                <WorkspaceSidebar
+                    v-if="sidebarOpen"
+                    :folder-name="folderName"
+                    :nodes="treeData"
+                    :active-path="activeTabPath"
+                    :tree-refreshing="treeRefreshing"
+                    @open-file="handleOpenFile"
+                    @load-folder="handleLoadFolderChildren"
+                    @show-in-file-manager="handleShowInFileManager"
+                    @refresh="handleRefreshTree"
+                />
 
                 <div
                     v-if="sidebarOpen"
                     class="workspace__resizer"
-                    @mousedown.stop.prevent="startResize"
+                    @mousedown.stop.prevent="startResize"   
                 ></div>
 
-                <section class="workspace__preview">
-                    <div class="pane-container pane-card--preview">
-                        <PreviewTabs
-                            ref="previewTabs"
-                            :tabs="openTabs"
-                            :active-tab-path="activeTabPath"
-                            :auto-save-enabled="autoSaveEnabled"
-                            :audio-queue-mode="audioQueueMode"
-                            :audio-has-prev="audioHasPrev"
-                            :audio-has-next="audioHasNext"
-                            @change-tab="handleChangeTab"
-                            @close-tab="handleCloseTab"
-                            @preview-error="handlePreviewError"
-                            @preview-rendered="handlePreviewRendered"
-                            @content-change="handleContentChange"
-                            @encoding-change="handleEncodingChange"
-                            @save-tab="handleSaveTab"
-                            @save-as-tab="handleSaveAsTab"
-                            @open-in-new-tab="handleOpenInNewTab"
-                            @reorder-tab="handleReorderTab"
-                            @new-tab="handleNewTab"
-                            @auto-save-toggle="handleAutoSaveToggle"
-                            @media-error="handleMediaError"
-                            @media-reload="reloadMediaTab"
-                            @media-open-system="openMediaWithSystem"
-                            @request-prev="(path) => navigateAudioQueue(path, -1)"
-                            @request-next="(path, manual) => navigateAudioQueue(path, 1, manual)"
-                            @set-queue-mode="handleAudioQueueMode"
-                        />
-                    </div>
-                </section>
+                <PreviewArea
+                    ref="previewArea"
+                    :tabs="openTabs"
+                    :layout="previewLayout"
+                    :focused-pane-id="focusedPreviewPaneId"
+                    :pane-count="previewPaneCount"
+                    :active-tab-path="activeTabPath"
+                    :auto-save-enabled="autoSaveEnabled"
+                    :audio-queue-mode="audioQueueMode"
+                    :audio-has-prev="audioHasPrev"
+                    :audio-has-next="audioHasNext"
+                    @change-tab="handlePreviewChangeTab"
+                    @close-tab="handleCloseTab"
+                    @focus-pane="handleFocusPane"
+                    @preview-error="handlePreviewError"
+                    @preview-rendered="handlePreviewRendered"
+                    @content-change="handleContentChange"
+                    @encoding-change="handleEncodingChange"
+                    @save-tab="handleSaveTab"
+                    @save-as-tab="handleSaveAsTab"
+                    @open-in-new-tab="handleOpenInNewTab"
+                    @reorder-tab="handleReorderTab"
+                    @move-tab="handleMoveTab"
+                    @split-tab="handleSplitTab"
+                    @resize-split="handleResizeSplit"
+                    @new-tab="handleNewTab"
+                    @auto-save-toggle="handleAutoSaveToggle"
+                    @media-error="handleMediaError"
+                    @media-reload="reloadMediaTab"
+                    @media-open-system="openMediaWithSystem"
+                    @request-prev="(path) => navigateAudioQueue(path, -1)"
+                    @request-next="(path, manual) => navigateAudioQueue(path, 1, manual)"
+                    @set-queue-mode="handleAudioQueueMode"
+                />
             </div>
         </section>
     </main>
@@ -217,11 +124,12 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { Events, Window } from "@wailsio/runtime";
 import TitleBar from "./components/TitleBar.vue";
-import FileTree from "./components/FileTree.vue";
+import WorkspaceSidebar from "./components/WorkspaceSidebar.vue";
+import PreviewArea from "./components/PreviewArea.vue";
 import PreviewTabs from "./components/PreviewTabs.vue";
 import { App } from "../bindings/MostFileViewer";
 import { useTheme } from "./composables/useTheme";
-import { getMediaType } from "./composables/useFileTypes";
+import { getMediaType, isEbookExtension } from "./composables/useFileTypes";
 import { mediaErrorMessage } from "./composables/useMediaPlayer";
 import { useAutoSave } from "./composables/useAutoSave";
 import { useWorkspaceSession } from "./composables/useWorkspaceSession";
@@ -229,6 +137,7 @@ import { usePreviewLoader } from "./composables/usePreviewLoader";
 import { useTabPersistence } from "./composables/useTabPersistence";
 import { useFileSystemSync } from "./composables/useFileSystemSync";
 import { useTabLifecycle } from "./composables/useTabLifecycle";
+import { usePreviewLayout } from "./composables/usePreviewLayout";
 
 const selectedFolder = ref("");
 // 当前工作区的真实类型，不再通过 treeData 的形状推断。
@@ -246,11 +155,54 @@ function nextMediaSourceVersion() {
     mediaSourceVersionCounter += 1;
     return mediaSourceVersionCounter;
 }
-const previewTabs = ref(null);
+const previewArea = ref(null);
 const globalError = ref("");
-const treeSearchActive = ref(false);
-const treeSearchQuery = ref("");
-const treeSearchInput = ref(null);
+
+// 预览区分屏布局。单 pane 时布局退化为一个 pane 节点，行为与分屏前完全一致；
+// activeTabPath 由布局层回写为「焦点 pane 的激活 tab」，因此标题栏保存、
+// Ctrl+S、侧栏高亮、音频队列等既有消费点无需感知分屏。
+const {
+    layout: previewLayout,
+    focusedPaneId: focusedPreviewPaneId,
+    paneCount: previewPaneCount,
+    panes: previewPanes,
+    addTab: addPreviewTab,
+    reorderTab: reorderPreviewTab,
+    moveTabToPane: movePreviewTabToPane,
+    splitTabToZone: splitPreviewTabToZone,
+    setPaneActive: setPreviewPaneActive,
+    setFocusedPane: setFocusedPreviewPane,
+    setRatio: setPreviewSplitRatio,
+    replaceTabPath: replacePreviewTabPath,
+    resetLayout: resetPreviewLayout,
+    serialize: serializePreviewLayout,
+    restoreLayout: restorePreviewLayout,
+    suspendReconcile: suspendPreviewReconcile,
+    resumeReconcile: resumePreviewReconcile,
+} = usePreviewLayout({ openTabs, activeTabPath });
+
+// 供 useWorkspaceSession 做会话恢复 / 持久化的布局操作集合。
+const previewLayoutSession = {
+    suspend: suspendPreviewReconcile,
+    resume: resumePreviewReconcile,
+    restore: restorePreviewLayout,
+    serialize: serializePreviewLayout,
+    paneIdForPath: (path) =>
+        previewPanes.value.find((pane) => pane.tabPaths.includes(path))?.id || "",
+    activate: (path) => {
+        const owner = previewPanes.value.find((pane) => pane.tabPaths.includes(path));
+        if (!owner) {
+            return;
+        }
+        setFocusedPreviewPane(owner.id);
+        setPreviewPaneActive(owner.id, path);
+    },
+};
+
+/** 新 tab 归属：显式指定 pane，未指定则落到当前焦点 pane。 */
+function addTabToPane(path, paneId = "") {
+    addPreviewTab(path, { paneId: paneId || focusedPreviewPaneId.value });
+}
 const treeRefreshing = ref(false);
 let removeResizeListeners = null;
 let removeFilesDroppedListener = null;
@@ -406,6 +358,7 @@ const {
     getPathExtension,
     registerOpenPath,
     openFileNode,
+    layoutSession: previewLayoutSession,
 });
 
 const {
@@ -425,7 +378,7 @@ const {
     tabs: openTabs,
     activePath: activeTabPath,
     selectedFolder,
-    previewTabs,
+    previewArea,
     autoSaveEnabled,
     clearAutoSave: clearAutoSaveDebounceTimer,
     scheduleAutoSave,
@@ -435,11 +388,12 @@ const {
     getPathName,
     getPathExtension,
     normalizeError,
+    replaceTabPath: replacePreviewTabPath,
 });
 saveTabForAutoSave = handleSaveTab;
 
 const {
-    handleReorderTab,
+    handleReorderTab: reorderTabsOrder,
     handleOpenInNewTab,
     handleNewTab,
     handleCloseTab,
@@ -461,8 +415,21 @@ const {
     clearLivePreviewTimer: (path) => clearLivePreviewTimer(path),
     schedulePersist: schedulePersistWorkspaceSession,
     clearWorkspaceSession,
+    resolveFallbackActive: pickFallbackActivePath,
 });
 saveTabForLifecycle = handleSaveTab;
+
+// 新建空白（未命名可编辑）tab 的统一入口：标题栏「文件 → 新建文本文件」与
+// 首页 tab 签条的「+」按钮共用。首页（empty 模式）只渲染 tab 签条，首个空白
+// tab 创建前需切换到 file 模式让工作区（含 tab 内容区）渲染；file 模式没有
+// 文件夹树，与单文件打开行为一致地隐藏侧边栏。
+function createBlankTab() {
+    if (workspaceMode.value === "empty") {
+        workspaceMode.value = "file";
+        sidebarOpen.value = false;
+    }
+    handleNewTab();
+}
 
 const {
     handleFsChange,
@@ -486,6 +453,7 @@ const {
     registerOpenPath,
     unregisterOpenPath,
     normalizeError,
+    replaceTabPath: replacePreviewTabPath,
 });
 
 // 未命名（空白可编辑）tab 的自增计数器，保证多个未命名 tab 的 path 与 name 互不重复。
@@ -493,7 +461,7 @@ let untitledCounter = 0;
 
 const workspaceStyle = computed(() => ({
     gridTemplateColumns: sidebarOpen.value
-        ? `${leftPaneWidth.value}px 8px minmax(0, 1fr)`
+        ? `${leftPaneWidth.value}px 4px minmax(0, 1fr)`
         : "minmax(0, 1fr)",
 }));
 
@@ -502,45 +470,6 @@ const folderName = computed(() => {
     const trimmed = selectedFolder.value.replace(/[\\/]+$/, "");
     return trimmed.split(/[\\/]/).pop() || trimmed;
 });
-
-// 是否处于有效的搜索过滤状态（激活且有非空关键字）
-const isTreeFiltering = computed(
-    () => treeSearchActive.value && treeSearchQuery.value.trim() !== "",
-);
-
-// 根据搜索关键字过滤文件树：保留名称匹配的文件，以及包含匹配项的文件夹（并强制展开）。
-// 注意：文件树为懒加载，未展开的文件夹其子节点尚未加载，过滤仅作用于已加载的节点。
-const displayTreeData = computed(() => {
-    if (!isTreeFiltering.value) {
-        return treeData.value;
-    }
-    const keyword = treeSearchQuery.value.trim().toLowerCase();
-    return filterTreeNodes(treeData.value, keyword);
-});
-
-function filterTreeNodes(nodes, keyword) {
-    const result = [];
-    for (const node of nodes) {
-        const nameMatched = (node.name || "").toLowerCase().includes(keyword);
-        if (node.type === "folder") {
-            const filteredChildren = filterTreeNodes(
-                node.children || [],
-                keyword,
-            );
-            if (nameMatched || filteredChildren.length > 0) {
-                result.push({
-                    ...node,
-                    children: filteredChildren,
-                    // 过滤时强制展开以显示命中的后代节点
-                    forceExpanded: filteredChildren.length > 0,
-                });
-            }
-        } else if (nameMatched) {
-            result.push({ ...node });
-        }
-    }
-    return result;
-}
 
 // 文件模式下 selectedFolder 保存文件所在目录，不能用它判断是否为文件夹工作区。
 const isActualFolderPreview = computed(() => workspaceMode.value === "folder");
@@ -725,6 +654,8 @@ async function replaceWorkspace({
     await nextTick();
     openTabs.value = [];
     activeTabPath.value = "";
+    // 新工作区回到单 pane 布局。
+    resetPreviewLayout();
 
     if (openNode) {
         await openFileNode(openNode);
@@ -865,7 +796,7 @@ async function handleRefreshTree() {
     }
 }
 
-async function openFileNode(node) {
+async function openFileNode(node, paneId = "") {
     const initialPreviewType = getPreviewType(node.extension);
     const sourceVersion =
         initialPreviewType === "audio" || initialPreviewType === "video"
@@ -900,6 +831,9 @@ async function openFileNode(node) {
     };
 
     openTabs.value = [...openTabs.value, tab];
+    // 归属到指定 pane（未指定则为当前焦点 pane）；随后才设置激活路径，
+    // 使「新打开的 tab 出现在焦点区块」这一语义在分屏下同样成立。
+    addTabToPane(tab.path, paneId);
     activeTabPath.value = tab.path;
 
     try {
@@ -997,18 +931,6 @@ async function handleOpenFile(node) {
     await openFileNode(node);
 }
 
-function handleTreeSearch() {
-    treeSearchActive.value = true;
-    nextTick(() => {
-        treeSearchInput.value?.focus();
-    });
-}
-
-function closeTreeSearch() {
-    treeSearchActive.value = false;
-    treeSearchQuery.value = "";
-}
-
 async function handleShowInFileManager(node) {
     if (!node?.path) {
         return;
@@ -1023,6 +945,108 @@ async function handleShowInFileManager(node) {
 
 function handleChangeTab(path) {
     activeTabPath.value = path;
+    schedulePersistWorkspaceSession();
+}
+
+// ---- 分屏布局交互（由 PreviewArea 上抛）----
+
+/** pane 内切换激活 tab：先聚焦该 pane，再设置其激活项。 */
+function handlePreviewChangeTab(paneId, path) {
+    setFocusedPreviewPane(paneId);
+    setPreviewPaneActive(paneId, path);
+    handleChangeTab(path);
+}
+
+/** 点击 / 操作某个 pane 即聚焦它，决定后续新打开 tab 的归属。 */
+function handleFocusPane(paneId) {
+    setFocusedPreviewPane(paneId);
+}
+
+/**
+ * 关闭 tab 后决定新的激活项：优先「同 pane 内关闭位置的后一个 / 前一个 tab」，
+ * 避免分屏时焦点跳到其它区块；找不到同 pane 邻居时回退到全局相邻项。
+ * 注意：调用时 openTabs 已移除该 tab，但布局要到下一次 reconcile 才同步，
+ * 因此这里仍能从 pane.tabPaths 里读到被关闭 tab 的位置。
+ */
+function pickFallbackActivePath({ closedPath, nextTabs, currentIndex }) {
+    const pane = previewPanes.value.find((item) => item.tabPaths.includes(closedPath));
+    if (pane) {
+        const index = pane.tabPaths.indexOf(closedPath);
+        const candidates = [
+            pane.tabPaths[index + 1],
+            pane.tabPaths[index - 1],
+            ...pane.tabPaths,
+        ];
+        const nextPath = candidates.find(
+            (path) =>
+                path &&
+                path !== closedPath &&
+                nextTabs.some((tab) => tab.path === path),
+        );
+        if (nextPath) {
+            return nextPath;
+        }
+    }
+    return nextTabs[currentIndex]?.path || nextTabs[currentIndex - 1]?.path || "";
+}
+
+/**
+ * 同一 pane 内拖动排序：布局顺序（决定 tab 条与持久化）与 openTabs 顺序同步维护，
+ * 后者与视觉顺序保持一致，便于复用其它「按数组顺序」处理 tab 的逻辑。
+ */
+function handleReorderTab(payload) {
+    const { paneId, fromPath, toPath, after } = payload || {};
+    if (!fromPath || !toPath || fromPath === toPath) {
+        return;
+    }
+    // paneId 缺失时回退到焦点 pane：否则只会重排 openTabs，
+    // 而 tab 条顺序取自布局，视觉上会看不到任何变化。
+    const targetPaneId =
+        paneId || focusedPreviewPaneId.value || previewPanes.value[0]?.id || "";
+    if (targetPaneId) {
+        reorderPreviewTab(targetPaneId, fromPath, toPath, after);
+    }
+    reorderTabsOrder({ fromPath, toPath, after });
+    schedulePersistWorkspaceSession();
+}
+
+/** 跨 pane 移动 tab：插入到目标 pane 的指定位置（缺省追加到末尾）。 */
+function handleMoveTab(payload) {
+    const { fromPath, toPaneId, beforePath, after } = payload || {};
+    if (!fromPath || !toPaneId) {
+        return;
+    }
+    const target = previewPanes.value.find((pane) => pane.id === toPaneId);
+    let index = -1;
+    if (target && beforePath) {
+        const at = target.tabPaths.indexOf(beforePath);
+        if (at !== -1) {
+            index = after ? at + 1 : at;
+        }
+    }
+    if (movePreviewTabToPane(fromPath, toPaneId, { index })) {
+        schedulePersistWorkspaceSession();
+    }
+}
+
+/** 拖动 tab 到目标 pane 的上 / 下 / 左 / 右 1/4 区域：分屏。 */
+function handleSplitTab(payload) {
+    const { fromPath, targetPaneId, zone } = payload || {};
+    if (!fromPath || !targetPaneId || !zone) {
+        return;
+    }
+    if (splitPreviewTabToZone({ path: fromPath, targetPaneId, zone })) {
+        schedulePersistWorkspaceSession();
+    }
+}
+
+/** 拖动分隔条调整两个区块的比例。 */
+function handleResizeSplit(payload) {
+    const { splitId, ratio } = payload || {};
+    if (!splitId) {
+        return;
+    }
+    setPreviewSplitRatio(splitId, ratio);
     schedulePersistWorkspaceSession();
 }
 
@@ -1195,7 +1219,7 @@ function handleContentChange(path) {
     // 内容清空后恢复为「未命名」/「未命名 N」。仅 virtual 走此规则，普通文件保留原名。
     if (tab.virtual) {
         const latest =
-            previewTabs.value?.getCodeContent?.(path) ?? tab.content ?? "";
+            previewArea.value?.getCodeContent?.(path) ?? tab.content ?? "";
         updates.name = deriveUntitledName(latest);
     }
 
@@ -1232,7 +1256,7 @@ function scheduleLivePreviewSync(sourcePath) {
 
     const timer = setTimeout(() => {
         livePreviewTimers.delete(sourcePath);
-        const latest = previewTabs.value?.getCodeContent?.(sourcePath);
+        const latest = previewArea.value?.getCodeContent?.(sourcePath);
         if (latest === undefined || latest === null) {
             return;
         }
@@ -1358,6 +1382,9 @@ function getPreviewType(extension) {
   if (normalized === ".pdf") {
     return "pdf"
   }
+  if (isEbookExtension(normalized)) {
+    return "ebook"
+  }
   if (isImageExtension(normalized)) {
     return "image"
   }
@@ -1451,114 +1478,3 @@ function stopAutoSave() {
 }
 </script>
 
-<style scoped>
-.pane-container {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
-    background-color: var(--bg-surface);
-}
-
-.pane-card__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 2px 12px;
-    font-size: 16px;
-    border-bottom: 1px solid var(--border-subtle);
-    font-weight: 600;
-}
-
-.pane-card__title {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.pane-card__header-actions {
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.pane-card__search-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px;
-    border: none;
-    background: transparent;
-    border-radius: 4px;
-    color: var(--text-secondary, inherit);
-    cursor: pointer;
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.15s ease, background-color 0.15s ease;
-}
-
-.workspace__sidebar:hover .pane-card__search-btn,
-.pane-card__search-btn--busy {
-    opacity: 1;
-    visibility: visible;
-}
-
-.pane-card__search-btn:hover {
-    background-color: var(--bg-hover, rgba(0, 0, 0, 0.08));
-}
-
-.pane-card__search-icon {
-    width: 16px;
-    height: 16px;
-}
-
-.pane-card__header--search {
-    gap: 6px;
-}
-
-.pane-card__search-icon--input {
-    flex-shrink: 0;
-    color: var(--text-secondary, inherit);
-}
-
-.pane-card__search-input {
-    flex: 1;
-    min-width: 0;
-    border: none;
-    outline: none;
-    background: transparent;
-    font-size: 14px;
-    font-weight: 400;
-    color: var(--text-primary, inherit);
-}
-
-.pane-card__search-input::placeholder {
-    color: var(--text-muted, #999);
-}
-
-.pane-card__search-btn:disabled {
-    cursor: default;
-}
-
-.pane-card__search-btn:disabled:hover {
-    background-color: transparent;
-}
-
-.pane-card__search-icon--spinning {
-    animation: pane-card-icon-spin 0.8s linear infinite;
-}
-
-@keyframes pane-card-icon-spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-.pane-card__search-btn--close {
-    opacity: 1;
-    visibility: visible;
-    flex-shrink: 0;
-}
-</style>

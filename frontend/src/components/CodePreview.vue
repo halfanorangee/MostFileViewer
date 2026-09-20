@@ -1117,14 +1117,26 @@ async function configureLanguage() {
 }
 
 .code-preview-resizer {
-    flex: 0 0 8px;
+    flex: 0 0 6px;
     min-height: 0;
     cursor: col-resize;
     background: linear-gradient(
         to right,
-        transparent 0,
-        var(--border-cell) 50%,
-        transparent 100%
+        transparent calc(50% - 1px),
+        var(--border-cell) calc(50% - 1px),
+        var(--border-cell) calc(50% + 1px),
+        transparent calc(50% + 1px)
+    );
+}
+
+.code-preview-resizer:hover,
+.code-preview-body--resizing .code-preview-resizer {
+    background: linear-gradient(
+        to right,
+        transparent calc(50% - 1px),
+        var(--accent-primary) calc(50% - 1px),
+        var(--accent-primary) calc(50% + 1px),
+        transparent calc(50% + 1px)
     );
 }
 
@@ -1366,6 +1378,7 @@ async function configureLanguage() {
     outline-offset: 2px;
 }
 
+/* 与媒体播放控件按钮（.media-controls__btn）保持一致：28x28、透明底、悬浮出现背景与边框 */
 .code-preview-action {
     display: inline-flex;
     align-items: center;
@@ -1373,11 +1386,12 @@ async function configureLanguage() {
     width: 24px;
     height: 24px;
     padding: 0;
-    border: 0;
-    border-radius: 4px;
+    border: 1px solid transparent;
+    border-radius: 6px;
     background: transparent;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
 }
 
 /* 占位弹簧：把其后的按钮组整体推到状态栏右侧 */
@@ -1390,14 +1404,20 @@ async function configureLanguage() {
     margin-left: 2px;
 }
 
-.code-preview-action:hover:not(:disabled),
+.code-preview-action:hover:not(:disabled) {
+    background: var(--bg-hover);
+    border-color: var(--border-default);
+    color: var(--text-primary);
+}
+
 .code-preview-action--active {
-    background: var(--bg-surface);
     color: var(--accent-primary);
+    background: var(--accent-overlay);
+    border-color: transparent;
 }
 
 .code-preview-action:focus-visible {
-    outline: 1px solid var(--accent-primary);
+    outline: 2px solid var(--accent-primary);
     outline-offset: 2px;
 }
 
@@ -1407,7 +1427,7 @@ async function configureLanguage() {
 }
 
 .code-preview-action__icon {
-    width: 18px;
-    height: 18px;
+    width: 17px;
+    height: 17px;
 }
 </style>

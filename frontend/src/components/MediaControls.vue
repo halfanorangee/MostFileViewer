@@ -794,9 +794,9 @@ onBeforeUnmount(() => {
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  transition: border-color 0.15s, color 0.15s;
   flex-shrink: 0;
 }
 

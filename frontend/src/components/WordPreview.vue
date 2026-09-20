@@ -11,6 +11,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useTheme } from "../composables/useTheme";
 import {
     OFFICE_WORKER_TIMEOUT_MS,
+    cloneOfficeSource,
     getOfficeWasmUrl,
     normalizeOfficePreviewError,
     waitForRenderableHost,
@@ -210,6 +211,13 @@ async function render(source) {
 
     if (!source || !host.value) return;
 
+    // 兜底：byteLength 为 0 意味着缓冲区已被 detach（历史版本 load() 会消费
+    // 传入的 buffer），此时解析只会得到无意义的报错，直接给出可读提示。
+    if (source.byteLength === 0) {
+        emit("error", "文档数据已失效，请关闭后重新打开该标签");
+        return;
+    }
+
     try {
         if (!(await waitForRenderableHost(host.value))) {
             if (currentRender === renderSequence) {
@@ -235,7 +243,11 @@ async function render(source) {
             onError: (err) => emit("error", normalizeOfficePreviewError(err)),
         });
 
-        await viewer.load(source);
+        // load() 会把 buffer 作为 transferable 交给解析 worker（随后原缓冲区被
+        // detach）。tab.source 是共享数据源（分屏/移动 tab 的重挂载、主题变化、
+        // 会话恢复后的重渲染都会复用它），这里每次复制副本交给库，保证
+        // tab.source 永远不被消费、可重复渲染。
+        await viewer.load(cloneOfficeSource(source));
 
         if (currentRender !== renderSequence) {
             viewer?.destroy();

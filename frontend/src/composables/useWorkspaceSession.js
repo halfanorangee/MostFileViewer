@@ -13,6 +13,7 @@ export function useWorkspaceSession({
     getPathExtension,
     registerOpenPath,
     openFileNode,
+    layoutSession = null,
 }) {
     let restoring = false;
     let persistTimer = null;
@@ -38,6 +39,11 @@ export function useWorkspaceSession({
                 leftPaneWidth.value = session.leftPaneWidth;
             }
 
+            // 分屏布局：先挂起布局对齐并建立 pane 骨架，再逐个按所属 pane 打开 tab，
+            // 避免「openTabs 尚为空」的中间态把多 pane 结构回收成单 pane。
+            layoutSession?.suspend?.();
+            layoutSession?.restore?.(session.layout);
+
             if (session.mode === "folder" && session.rootPath) {
                 const tree = await App.LoadFolderTree(session.rootPath);
                 workspaceMode.value = "folder";
@@ -59,7 +65,10 @@ export function useWorkspaceSession({
 
             for (const tab of session.openTabs || []) {
                 if (tab?.path) {
-                    await openFileNode(createFileNode(tab.path));
+                    await openFileNode(
+                        createFileNode(tab.path),
+                        layoutSession?.paneIdForPath?.(tab.path) || "",
+                    );
                 }
             }
 
@@ -67,6 +76,7 @@ export function useWorkspaceSession({
                 session.activePath &&
                 openTabs.value.some((tab) => tab.path === session.activePath)
             ) {
+                layoutSession?.activate?.(session.activePath);
                 activeTabPath.value = session.activePath;
             }
 
@@ -78,6 +88,7 @@ export function useWorkspaceSession({
         } catch (error) {
             await clear();
         } finally {
+            layoutSession?.resume?.();
             restoring = false;
         }
     }
@@ -119,6 +130,7 @@ export function useWorkspaceSession({
                 activePath: activeTabPath.value || "",
                 sidebarOpen: sidebarOpen.value,
                 leftPaneWidth: leftPaneWidth.value,
+                layout: layoutSession?.serialize?.() || undefined,
             });
         } catch (error) {
             // Session persistence is best-effort.

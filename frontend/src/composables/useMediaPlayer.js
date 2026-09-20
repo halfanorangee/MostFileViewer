@@ -1,5 +1,10 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { getMediaType, MEDIA_MIME_BY_EXTENSION } from './useFileTypes'
+import {
+  claimExclusivePlayback,
+  registerPlaybackController,
+  unregisterPlaybackController,
+} from './useMediaPlaybackCoordinator'
 
 // 通用倍速档位；[ / ] 快捷键在此列表内移动。
 export const MEDIA_PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
@@ -179,7 +184,7 @@ export function createMediaKeydownHandler(actions = {}) {
  * @param {(payload: {code: string, message: string}) => void} [options.onError]
  * @param {() => void} [options.onEnded]
  */
-export function useMediaPlayer({ getSource, onError, onEnded } = {}) {
+export function useMediaPlayer({ getSource, onError, onEnded, playbackKey } = {}) {
   const mediaRef = ref(null)
   const loadState = ref('idle')
   const isPlaying = ref(false)
@@ -195,6 +200,24 @@ export function useMediaPlayer({ getSource, onError, onEnded } = {}) {
   let volumeBeforeMute = 1
   let boundElement = null
   let abHintTimer = null
+
+  // 独占播放：分屏后多个 pane 的播放器会同时挂载，播放开始时抢占独占权，
+  // 由协调器暂停上一个播放器（见 useMediaPlaybackCoordinator 的时序说明）。
+  const playbackKeyValue =
+    typeof playbackKey === 'function'
+      ? String(playbackKey() || '')
+      : String(playbackKey || '')
+  const playbackController = {
+    pause() {
+      const el = mediaRef.value
+      if (el && !el.paused) {
+        el.pause()
+      }
+    },
+  }
+  if (playbackKeyValue) {
+    registerPlaybackController(playbackKeyValue, playbackController)
+  }
 
   function emitError(payload) {
     loadState.value = 'failed'
@@ -247,6 +270,9 @@ export function useMediaPlayer({ getSource, onError, onEnded } = {}) {
     playing() {
       loadState.value = 'ready'
       isPlaying.value = true
+      if (playbackKeyValue) {
+        claimExclusivePlayback(playbackKeyValue)
+      }
     },
     waiting() {
       if (loadState.value !== 'failed') {
@@ -523,6 +549,9 @@ export function useMediaPlayer({ getSource, onError, onEnded } = {}) {
     }
     stopMedia()
     detachListeners()
+    if (playbackKeyValue) {
+      unregisterPlaybackController(playbackKeyValue, playbackController)
+    }
   })
 
   return {

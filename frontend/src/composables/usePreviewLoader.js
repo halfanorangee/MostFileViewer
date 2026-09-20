@@ -70,7 +70,11 @@ export function usePreviewLoader({ getPreviewType, nextMediaSourceVersion }) {
             };
         }
 
-        if (["word", "excel", "ppt", "image", "pdf"].includes(previewType)) {
+        if (
+            ["word", "excel", "ppt", "image", "pdf", "ebook"].includes(
+                previewType,
+            )
+        ) {
             return readFileInChunks(content.path, Number(content.size || 0));
         }
         return base64ToArrayBuffer(content.base64);

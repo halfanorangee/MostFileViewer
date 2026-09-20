@@ -19,6 +19,7 @@ export function useFileSystemSync({
     registerOpenPath,
     unregisterOpenPath,
     normalizeError,
+    replaceTabPath = () => {},
 }) {
     function findNodeByPath(nodes, targetPath) {
         for (const node of nodes || []) {
@@ -182,6 +183,8 @@ export function useFileSystemSync({
                   }
                 : item,
         );
+        // 外部重命名后同步分屏布局中的 path，确保该 tab 留在原 pane。
+        replaceTabPath(oldPath, newPath);
         if (activeTabPath.value === oldPath) {
             activeTabPath.value = newPath;
         }

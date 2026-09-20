@@ -125,6 +125,7 @@ const resolvedSrc = computed(() =>
 const player = useMediaPlayer({
   getSource: () => resolvedSrc.value,
   onError: (payload) => emit("media-error", payload),
+  playbackKey: () => props.path,
 });
 
 const mediaRef = player.mediaRef;

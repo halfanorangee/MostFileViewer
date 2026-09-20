@@ -14,6 +14,23 @@ import wordIcon from "@iconify-icons/vscode-icons/file-type-word2.js";
 import excelIcon from "@iconify-icons/vscode-icons/file-type-excel2.js";
 import powerpointIcon from "@iconify-icons/vscode-icons/file-type-powerpoint2.js";
 import pdfIcon from "@iconify-icons/vscode-icons/file-type-pdf2.js";
+// vscode-icons / vscode-icons-js 均未覆盖电子书扩展名，这里内置一枚
+// Material Design「book」图标（Apache-2.0）作为电子书类文件的统一图标。
+const ebookIcon = Object.freeze({
+    body: '<path fill="currentColor" d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"/>',
+    width: 24,
+    height: 24,
+});
+const EBOOK_ICON_EXTENSIONS = new Set([
+    ".epub",
+    ".mobi",
+    ".prc",
+    ".azw",
+    ".azw3",
+    ".fb2",
+    ".fbz",
+    ".cbz",
+]);
 import {
     DEFAULT_FILE,
     DEFAULT_FOLDER,
@@ -112,6 +129,9 @@ function resolveExtensionIcon() {
     }
 
     const extension = getFileExtension();
+    if (EBOOK_ICON_EXTENSIONS.has(extension)) {
+        return ebookIcon;
+    }
     return fileIconsByExtension[extension] ?? null;
 }
 

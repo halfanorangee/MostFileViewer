@@ -1,0 +1,69 @@
+/* 媒体进度条共享样式:音频/视频(MediaControls.vue)与电子书(EBookPreview.vue)
+   复用同一条进度条外观(4px 轨道 + --progress 填充 + 圆形滑块)。
+   MediaControls 当前仍持有同一套 scoped 规则,两处需保持同步;
+   后续如需单源化,可将 MediaControls 的进度条样式迁移至本文件并删除其副本。 */
+
+.media-controls__track {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+}
+
+.media-controls__progress-bar {
+    width: 100%;
+    min-width: 0;
+    height: 4px;
+    border-radius: 99px;
+    appearance: none;
+    background: linear-gradient(
+        to right,
+        var(--accent-primary) var(--progress),
+        var(--border-default) var(--progress)
+    );
+    accent-color: var(--accent-primary);
+    cursor: pointer;
+}
+
+.media-controls__progress-bar:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.media-controls__progress-bar::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 99px;
+    background: transparent;
+}
+
+.media-controls__progress-bar::-webkit-slider-thumb {
+    width: 12px;
+    height: 12px;
+    margin-top: -4px;
+    appearance: none;
+    border: 2px solid var(--accent-primary);
+    border-radius: 50%;
+    background: var(--bg-surface);
+    box-shadow: 0 0 0 3px var(--accent-overlay);
+}
+
+.media-controls__progress-bar::-moz-range-track {
+    height: 4px;
+    border-radius: 99px;
+    background: var(--border-default);
+}
+
+.media-controls__progress-bar::-moz-range-progress {
+    height: 4px;
+    border-radius: 99px;
+    background: var(--accent-primary);
+}
+
+.media-controls__progress-bar::-moz-range-thumb {
+    width: 8px;
+    height: 8px;
+    border: 2px solid var(--accent-primary);
+    border-radius: 50%;
+    background: var(--bg-surface);
+}
